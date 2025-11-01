@@ -70,7 +70,7 @@ class Beeton {
 
     std::vector<uint8_t> buildPacket(uint16_t thing, uint8_t id, uint8_t action,
                                      const std::vector<uint8_t> &payload);
-    bool parsePacket(const std::vector<uint8_t> &raw, uint8_t &version, uint16_t &thing,
+    bool parsePacket(const std::vector<uint8_t> &raw, uint8_t &version, String &originIp, uint16_t &thing,
                      uint8_t &id, uint8_t &action, std::vector<uint8_t> &payload);
     void handleInternalMessage(const String &srcIp, bool reliable, uint8_t version, uint16_t thing,
                                uint8_t id, uint8_t action, const std::vector<uint8_t> &payload);
@@ -78,6 +78,11 @@ class Beeton {
     void logBeeton(BeetonLogLevel level, const char *fmt, ...);
     std::vector<String> splitCsv(const String &input);
     String formatPayload(const std::vector<uint8_t> &payload);
+    
+    // --- IPv6 origin helpers ---
+    std::vector<uint8_t> parseIpv6(const String &ip);
+    String               formatIpv6(const std::vector<uint8_t> &bytes);
+
 };
 
 #endif // BEETON_PROTOCOL_H

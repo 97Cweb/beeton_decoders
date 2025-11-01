@@ -15,18 +15,19 @@ void Beeton::begin(LightThread &lt) {
     // Register callback for all incoming UDP messages
     lightThread->registerUdpReceiveCallback(
         [this](const String &srcIp, const bool reliable, const std::vector<uint8_t> &payload) {
-            if(payload.size() < 7) {
+            if(payload.size() < 20) {
                 logBeeton(BEETON_LOG_DEBUG, "Ignored short packet from %s (len=%d)", srcIp.c_str(),
                           payload.size());
                 return;
             }
 
             uint8_t version, id, action;
+            String originIp;
             uint16_t thing;
             std::vector<uint8_t> content;
 
             // Parse the message and route it internally
-            if(parsePacket(payload, version, thing, id, action, content)) {
+            if(parsePacket(payload, version, originIp, thing, id, action, content)) {
                 handleInternalMessage(srcIp, reliable, version, thing, id, action, content);
             } else {
                 logBeeton(BEETON_LOG_WARN, "Invalid packet from %s", srcIp.c_str());
@@ -118,35 +119,51 @@ void Beeton::defineThings(const std::vector<BeetonThing> &list) {
 std::vector<uint8_t> Beeton::buildPacket(uint16_t thing, uint8_t id, uint8_t action,
                                          const std::vector<uint8_t> &payload) {
     uint16_t version = 1;
+    
     std::vector<uint8_t> out;
-    uint16_t payloadLen = static_cast<uint16_t>(payload.size());
-
+    //reserve full header 
+    out.reserve(1+16+2+1+1+payload.size());
+    //[0] Version
     out.push_back(version);
-    out.push_back(thing >> 8);   // high byte
+    //[1..16] Mesh-Local EID (source IP address)
+    String ip = lightThread->getMyIp();
+    auto origin = parseIpv6(ip);
+    out.insert(out.end(),origin.begin(),origin.end());
+    //[17..18] Thing
+    out.push_back((thing >> 8) && 0xff);   // high byte
     out.push_back(thing & 0xff); // low byte
+    //[19] ID
     out.push_back(id);
+    //[20] action
     out.push_back(action);
 
-    out.push_back(payloadLen >> 8);
-    out.push_back(payloadLen && 0xff);
+    //[21..end] Payload
     out.insert(out.end(), payload.begin(), payload.end());
     return out;
 }
 
 // Attempt to parse a received packet
-bool Beeton::parsePacket(const std::vector<uint8_t> &raw, uint8_t &version, uint16_t &thing,
+bool Beeton::parsePacket(const std::vector<uint8_t> &raw, uint8_t &version, String &originIp, uint16_t &thing,
                          uint8_t &id, uint8_t &action, std::vector<uint8_t> &payload) {
-    if(raw.size() < 7)
+    // Need: version (1) + origin (16) + thing(2) + id(1) + action(1) = 21 bytes min
+    if (raw.size() < 21)
         return false;
-    version = raw[0];
-    thing = (raw[1] << 8) | raw[2];
-    id = raw[3];
-    action = raw[4];
-    uint16_t len = (raw[5] << 8) | raw[6];
-
-    if(raw.size() < 7 + len)
-        return false;
-    payload.assign(raw.begin() + 7, raw.end());
+    size_t off = 0;
+    //[0] version
+    version = raw[off++];
+    //[1..16] Origin IPv6
+    std::vector<uint8_t> origin(raw.begin() + off, raw.begin() + off + 16);
+    off += 16;
+    originIp = formatIpv6(origin);
+    //[17..18] Thing ID (Big Endian)
+    thing = (uint16_t(raw[off]) << 8) | uint16_t(raw[off+1]);
+    off += 2;
+    //[19] ID
+    id = raw[off++];
+    //[20] Action
+    action = raw[off++];
+    //[21..end] Payload
+    payload.assign(raw.begin() + off, raw.end());
     return true;
 }
 

@@ -83,13 +83,26 @@ void Beeton::updateUsb() {
 
                 if(input.equalsIgnoreCase("GETTHINGS")) {
                     sendAllKnownThingsToUsb();
-                } else if(input.startsWith("GETFILE,")) {
+                }
+                else if(input.startsWith("GETFILE,")) {
                     String filename = input.substring(8);
                     sendFileOverUsb(filename);
-                } else if(input.startsWith("SEND,")) {
+                } 
+                else if(input.startsWith("SEND,")) {
                     String sendCommand = input.substring(5);
                     sendCommandFromUsb(sendCommand);
-                } else {
+                }
+                else if (input == "PACKETTEST") {
+                    std::vector<uint8_t> dummy = {1,2,3};
+                    auto raw = this->buildPacket(0x1234, 1, 42, dummy);
+                    String origin; uint16_t t; uint8_t id,a; std::vector<uint8_t> pl;
+                    uint8_t version = 1;
+                    this->parsePacket(raw, version, origin, t, id, a, pl);
+                    sendUsb("origin=%s thing=%04X id=%u action=%u len=%d",
+                            origin.c_str(), t, id, a, pl.size());
+                }
+
+                else {
                     sendUsb("ECHO: %s", input.c_str());
                 }
                 input = "";
