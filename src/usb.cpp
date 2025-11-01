@@ -94,12 +94,12 @@ void Beeton::updateUsb() {
                 }
                 else if (input == "PACKETTEST") {
                     std::vector<uint8_t> dummy = {1,2,3};
-                    auto raw = this->buildPacket(0x1234, 1, 42, dummy);
-                    String origin; uint16_t t; uint8_t id,a; std::vector<uint8_t> pl;
+                    auto raw = this->buildPacket(/*flags=*/0,/*seq=*/0,0x1234, 1, 42, dummy);
+                    String origin; uint16_t t, seq; uint8_t flags, id,a; std::vector<uint8_t> pl;
                     uint8_t version = 1;
-                    this->parsePacket(raw, version, origin, t, id, a, pl);
-                    sendUsb("origin=%s thing=%04X id=%u action=%u len=%d",
-                            origin.c_str(), t, id, a, pl.size());
+                    this->parsePacket(raw, version, origin, flags, seq, t, id, a, pl);
+                    sendUsb("origin=%s flags=%u seq=%04X thing=%04X id=%u action=%u len=%d",
+                            origin.c_str(), flags, seq, t, id, a, pl.size());
                 }
 
                 else {

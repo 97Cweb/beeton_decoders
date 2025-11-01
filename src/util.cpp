@@ -99,3 +99,53 @@ String Beeton::formatIpv6(const std::vector<uint8_t> &bytes) {
     return String(buf);
 }
 
+
+uint16_t Beeton::allocSeq() {
+    if (++nextSeq == 0) nextSeq = 1;
+    return nextSeq;
+}
+
+bool Beeton::wasSeenAndMark(const String& origin, uint16_t seq, uint32_t nowMs) {
+    // simple small dedupe window
+    for (auto &e : seen) {
+        if (e.first.origin == origin && e.first.seq == seq) {
+            e.second = nowMs;
+            return true;
+        }
+    }
+    if (seen.size() > 32) seen.erase(seen.begin());
+    seen.push_back({ SeqKey{origin, seq}, nowMs });
+    return false;
+}
+
+void Beeton::pumpReliable() {
+    uint32_t now = millis();
+    std::vector<uint16_t> done;
+
+    for (auto& kv : pending) {
+        auto &p = kv.second;
+        if ((int32_t)(now - p.nextDueMs) < 0) continue;
+
+        if (p.retriesLeft == 0) {
+            if (ackFailCb) ackFailCb(p.thing, p.id, p.action, p.seq);
+            done.push_back(kv.first);
+            continue;
+        }
+
+        // resend same packet bytes (rebuild with same flags/seq)
+        auto raw = buildPacket(BEETON_FLAG_RELIABLE, p.seq, p.thing, p.id, p.action, p.payload);
+        lightThread->sendUdp(p.destIp, /*reliableTransport*/ false, raw);
+
+        p.retriesLeft--;
+        p.nextDueMs = now + p.timeoutMs;
+    }
+    for (auto s : done) pending.erase(s);
+
+    // trim dedupe entries
+    const uint32_t maxAge = 3000;
+    auto it = seen.begin();
+    while (it != seen.end()) {
+        if (now - it->second > maxAge) it = seen.erase(it);
+        else ++it;
+    }
+}

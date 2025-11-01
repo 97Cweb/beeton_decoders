@@ -36,14 +36,14 @@ void loop() {
       }
       else if(oldButtonState == true && buttonState == true && !sentStop){
         if(millis()-pressedTime  > LONG_PRESS_TIME){
-          beeton.send(BEETON::RELIABLE,beeton.getThingId("train"),1,beeton.getActionId("train","stop"));
+          beeton.send(true,beeton.getThingId("train"),1,beeton.getActionId("train","stop"));
       
           sentStop = true;
         }
       }
       else if(oldButtonState == true && buttonState == false){
         if(!sentStop){
-          beeton.send(BEETON::RELIABLE,beeton.getThingId("train"),1,beeton.getActionId("train","coast"));
+          beeton.send(true,beeton.getThingId("train"),1,beeton.getActionId("train","coast"));
       
         }      
       }
@@ -54,7 +54,7 @@ void loop() {
       if(abs(newKnobPos-oldKnobPos) > 10){
         Serial.printf("knobpos: %d\n",newKnobPos);
         oldKnobPos = newKnobPos;
-        beeton.send(BEETON::UNRELIABLE,beeton.getThingId("train"),1,beeton.getActionId("train","setspeed"),newKnobPos);
+        beeton.send(false,beeton.getThingId("train"),1,beeton.getActionId("train","setspeed"),newKnobPos);
       }
     }
     delay(10);

@@ -6,10 +6,11 @@
 #include <functional>
 #include <map>
 #include <vector>
+#include <functional>
 
 namespace BEETON {
-constexpr bool RELIABLE = true;
-constexpr bool UNRELIABLE = false;
+static constexpr uint8_t BEETON_FLAG_ACK      = 0x01;
+static constexpr uint8_t BEETON_FLAG_RELIABLE = 0x02;
 }
 
 enum BeetonLogLevel { BEETON_LOG_DEBUG, BEETON_LOG_INFO, BEETON_LOG_WARN, BEETON_LOG_ERROR };
@@ -31,10 +32,19 @@ class Beeton {
               const std::vector<uint8_t> &payload);
 
     // Message receive handler
-    void onMessage(std::function<void(uint16_t thing, uint8_t id, uint8_t action,
-                                      const std::vector<uint8_t> &payload)>
-                       cb);
+    using MessageCallback = std::function<void(uint16_t thing, uint8_t id, uint8_t action,
+                                      const std::vector<uint8_t> &payload)>;
+    void onMessage(MessageCallback cb){ messageCallback = std::move(cb);}
+                       
+    // === Reliability Callbacks ===
+    using AckSuccessCallback = std::function<void(uint16_t thing, uint8_t id, uint8_t action, uint16_t seq)>;
+    using AckFailCallback    = std::function<void(uint16_t thing, uint8_t id, uint8_t action, uint16_t seq)>;
 
+    void onAckSuccess(AckSuccessCallback cb) { ackSuccessCb = std::move(cb); }
+    void onAckFail(AckFailCallback cb)       { ackFailCb = std::move(cb); }
+    
+    
+    
     String getThingName(uint16_t thing);
     String getActionName(String thingName, uint8_t actionId);
     uint16_t getThingId(const String &name);
@@ -57,7 +67,41 @@ class Beeton {
     void loadThings(const char *path);
     void loadActions(const char *path);
     void loadDefines(const char *path);
+    
+    // --- Constants ---
+    static constexpr uint8_t BEETON_FLAG_ACK      = 0x01;
+    static constexpr uint8_t BEETON_FLAG_RELIABLE = 0x02;
+  
+    // --- Reliability state ---
+    struct Pending {
+        String destIp;
+        String originIp;
+        uint16_t thing;
+        uint8_t id, action;
+        std::vector<uint8_t> payload;
+        uint16_t seq;
+        uint32_t nextDueMs;
+        uint16_t timeoutMs;
+        uint8_t  retriesLeft;
+    };
 
+    struct SeqKey {
+        String origin;
+        uint16_t seq;
+    };
+    
+    std::map<uint16_t, Pending> pending;
+    std::vector<std::pair<SeqKey, uint32_t>> seen;
+    
+    // State exposed to parser/handler
+    uint8_t  lastFlags = 0;
+    uint16_t lastSeq   = 0;
+    uint16_t nextSeq   = 1;
+    
+    AckSuccessCallback ackSuccessCb;
+    AckFailCallback    ackFailCb;
+    MessageCallback    messageCallback;
+    
     void defineThings(const std::vector<BeetonThing> &list);
 
     void sendAllKnownThingsToUsb();
@@ -66,14 +110,15 @@ class Beeton {
     void sendCommandFromUsb(String sendCommand);
     void updateUsb();
 
-    std::function<void(uint16_t, uint8_t, uint8_t, const std::vector<uint8_t> &)> messageCallback;
-
-    std::vector<uint8_t> buildPacket(uint16_t thing, uint8_t id, uint8_t action,
-                                     const std::vector<uint8_t> &payload);
-    bool parsePacket(const std::vector<uint8_t> &raw, uint8_t &version, String &originIp, uint16_t &thing,
-                     uint8_t &id, uint8_t &action, std::vector<uint8_t> &payload);
-    void handleInternalMessage(const String &srcIp, bool reliable, uint8_t version, uint16_t thing,
-                               uint8_t id, uint8_t action, const std::vector<uint8_t> &payload);
+    std::vector<uint8_t> buildPacket(uint8_t flags, uint16_t seq, uint16_t thing, uint8_t id, uint8_t action,
+                                         const std::vector<uint8_t> &payload);
+    bool parsePacket(const std::vector<uint8_t> &raw, uint8_t &version, String &originIp, uint8_t flags, uint16_t seq, 
+                        uint16_t &thing, uint8_t &id, uint8_t &action, std::vector<uint8_t> &payload);
+    // Internal message hook (used by UDP recv)
+    void handlePacket(const std::vector<uint8_t> &raw,
+                               uint8_t version, const String& originIp, uint8_t flags, uint16_t seq,
+                               uint16_t thing, uint8_t id, uint8_t action,
+                               const std::vector<uint8_t>& payload);
 
     void logBeeton(BeetonLogLevel level, const char *fmt, ...);
     std::vector<String> splitCsv(const String &input);
@@ -82,6 +127,13 @@ class Beeton {
     // --- IPv6 origin helpers ---
     std::vector<uint8_t> parseIpv6(const String &ip);
     String               formatIpv6(const std::vector<uint8_t> &bytes);
+    
+    
+    // --- Internal helpers ---
+    uint16_t allocSeq();
+    // === Internal tick for reliability retries ===
+    void pumpReliable();
+    bool wasSeenAndMark(const String& origin, uint16_t seq, uint32_t nowMs);
 
 };
 
