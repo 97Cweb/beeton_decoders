@@ -109,7 +109,7 @@ bool Beeton::send(bool reliable, uint16_t thing, uint8_t id, uint8_t action,
             p.thing = thing; p.id = id; p.action = action;
             p.payload = payload;
             p.seq = seq;
-            p.timeoutMs = 1000;
+            p.timeoutMs = 200;
             p.retriesLeft = 3;
             p.nextDueMs = millis() + p.timeoutMs;
             pending[seq] = std::move(p);
