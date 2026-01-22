@@ -28,6 +28,10 @@ void Beeton::begin(LightThread &lt) {
 
             // Parse the message and route it internally
             if(parsePacket(raw, version, originIp, flags, seq, thing, id, action, content)) {
+                logBeeton(BEETON_LOG_INFO,
+                      "Parsed: ver=%u flags=%02x seq=%u thing=%04x id=%02x action=%02x payloadLen=%u origin=%s",
+                      version, flags, seq, thing, id, action, content.size(), originIp.c_str());
+
                 handlePacket(raw, version, originIp, flags, seq, thing, id, action, content);
             } else {
                 logBeeton(BEETON_LOG_WARN, "Invalid packet from %s", srcIp.c_str());
@@ -43,14 +47,13 @@ void Beeton::begin(LightThread &lt) {
         // Package all local things into a WHO_AM_I announcement
         std::vector<uint8_t> payload;
         for(const auto &entry : localThings) {
-            payload.push_back(entry.thing << 8);
+            payload.push_back((entry.thing >> 8) & 0xff);
             payload.push_back(entry.thing & 0xff);
             payload.push_back(entry.id);
         }
 
-        std::vector<uint8_t> packet = buildPacket(/*flags=*/ 0,/*seq=*/ 0,0xFFFF, 0xFF, 0xFF, payload);
 
-        lightThread->sendUdp(ip, /*lightThreadReliable=*/false, packet);
+        this->send(true, 0xFFFF,0xFF,0xFF,payload);
         logBeeton(BEETON_LOG_INFO, "Joiner Sent WHO_AM_I automatically");
     });
 }
@@ -179,7 +182,7 @@ std::vector<uint8_t> Beeton::buildPacket(uint8_t flags, uint16_t seq, uint16_t t
 }
 
 // Attempt to parse a received packet
-bool Beeton::parsePacket(const std::vector<uint8_t> &raw, uint8_t &version, String &originIp, uint8_t flags, uint16_t seq, 
+bool Beeton::parsePacket(const std::vector<uint8_t> &raw, uint8_t &version, String &originIp, uint8_t &flags, uint16_t &seq, 
                         uint16_t &thing, uint8_t &id, uint8_t &action, std::vector<uint8_t> &payload) {
     // Need: version (1) + origin (16) + thing(2) + id(1) + action(1) = 21 bytes min
     if (raw.size() < 24)
@@ -191,7 +194,6 @@ bool Beeton::parsePacket(const std::vector<uint8_t> &raw, uint8_t &version, Stri
     std::vector<uint8_t> origin(raw.begin() + off, raw.begin() + off + 16);
     off += 16;
     originIp = formatIpv6(origin);
-    Serial.println(originIp);
     // [17] flags
     lastFlags = raw[off++];
     // [18..19] seq
@@ -212,12 +214,17 @@ bool Beeton::parsePacket(const std::vector<uint8_t> &raw, uint8_t &version, Stri
 void Beeton::handlePacket(const std::vector<uint8_t> &raw, uint8_t version, const String &originIp, uint8_t flags, uint16_t seq,
                                    uint16_t thing, uint8_t id, uint8_t action,
                                    const std::vector<uint8_t> &payload) {
+
+    logBeeton(BEETON_LOG_INFO, "handlePacket: thing=%04x id=%02x action=%02x flags=%02x",
+          thing, id, action, flags);
+
     // Handle packet directed to 0xFF (leader): WHO_I_AM messages from joiners
     if(thing == 0xFFFF && id == 0xFF && action == 0xFF) {
-
         if(lightThread && lightThread->getRole() == Role::LEADER) {
+            logBeeton(BEETON_LOG_INFO, "WHO_AM_I received from %s, %u bytes", originIp.c_str(), payload.size());
+
             // Map each (thing, id) to the joiner's IP
-            for(size_t i = 0; i + 1 < payload.size(); i += 3) {
+            for(size_t i = 0; i + 2 < payload.size(); i += 3) {
                 uint16_t t = (payload[i] << 8) | payload[i + 1];
 
                 uint8_t i_ = payload[i + 2];
