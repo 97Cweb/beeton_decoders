@@ -112,7 +112,7 @@ class Beeton {
 
     std::vector<uint8_t> buildPacket(uint8_t flags, uint16_t seq, uint16_t thing, uint8_t id, uint8_t action,
                                          const std::vector<uint8_t> &payload);
-    bool parsePacket(const std::vector<uint8_t> &raw, uint8_t &version, String &originIp, uint8_t flags, uint16_t seq, 
+    bool parsePacket(const std::vector<uint8_t> &raw, uint8_t &version, String &originIp, uint8_t &flags, uint16_t &seq, 
                         uint16_t &thing, uint8_t &id, uint8_t &action, std::vector<uint8_t> &payload);
     // Internal message hook (used by UDP recv)
     void handlePacket(const std::vector<uint8_t> &raw,
