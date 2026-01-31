@@ -36,6 +36,7 @@ void loop() {
       }
       else if(oldButtonState == true && buttonState == true && !sentStop){
         if(millis()-pressedTime  > LONG_PRESS_TIME){
+          Serial.println("stop");
           beeton.send(true,beeton.getThingId("train"),1,beeton.getActionId("train","stop"));
       
           sentStop = true;
@@ -43,6 +44,7 @@ void loop() {
       }
       else if(oldButtonState == true && buttonState == false){
         if(!sentStop){
+          Serial.println("coast");
           beeton.send(true,beeton.getThingId("train"),1,beeton.getActionId("train","coast"));
       
         }      

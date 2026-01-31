@@ -3,8 +3,8 @@
 LightThread lightThread;
 Beeton beeton;
 
-const int IN1 = GPIO_NUM_4;
-const int IN2 = GPIO_NUM_5;
+const int IN1 = GPIO_NUM_22;
+const int IN2 = GPIO_NUM_23;
 
 const uint32_t frequency = 20000;
 const uint8_t resolution = 8;

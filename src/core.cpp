@@ -43,10 +43,13 @@ void Beeton::begin(LightThread &lt) {
         // Package all local things into a WHO_AM_I announcement
         std::vector<uint8_t> payload;
         for(const auto &entry : localThings) {
+            logBeeton(BEETON_LOG_INFO, "Joiner adding thing id: %04X:%d", entry.thing, entry.id);
             payload.push_back(entry.thing << 8);
             payload.push_back(entry.thing & 0xff);
             payload.push_back(entry.id);
         }
+
+        
 
         std::vector<uint8_t> packet = buildPacket(/*flags=*/ 0,/*seq=*/ 0,0xFFFF, 0xFF, 0xFF, payload);
 

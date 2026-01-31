@@ -1,4 +1,5 @@
 train,SETSPEED,1
-train,HONK,2
+train,COAST,2
+train,STOP,3
 signal,SETRED,1
 signal,SETGREEN,2
