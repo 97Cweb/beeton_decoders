@@ -7,7 +7,7 @@ void Beeton::begin(LightThread &lt) {
     loadMappings();
 
     if(lightThread && lightThread->getRole() == Role::LEADER) {
-        Serial.begin(115200);
+        Serial.begin(BEETON_USB_BAUD);
         usbConnected = true;
         logBeeton(BEETON_LOG_INFO, "Serial Started for Leader");
     }
@@ -15,7 +15,7 @@ void Beeton::begin(LightThread &lt) {
     // Register callback for all incoming UDP messages
     lightThread->registerUdpReceiveCallback(
         [this](const String &srcIp, const std::vector<uint8_t> &raw) {
-            if(raw.size() < 24) {
+            if(raw.size() < BEETON_HEADER_SIZE) {
                 logBeeton(BEETON_LOG_DEBUG, "Ignored short packet from %s (len=%d)", srcIp.c_str(),
                           raw.size());
                 return;
@@ -112,8 +112,8 @@ bool Beeton::send(bool reliable, uint16_t thing, uint8_t id, uint8_t action,
             p.thing = thing; p.id = id; p.action = action;
             p.payload = payload;
             p.seq = seq;
-            p.timeoutMs = 200;
-            p.retriesLeft = 3;
+            p.timeoutMs = BEETON_RETRY_INTERVAL_MS;
+            p.retriesLeft = BEETON_MAX_RETRIES;
             p.nextDueMs = millis() + p.timeoutMs;
             pending[seq] = std::move(p);
         }
@@ -130,8 +130,8 @@ bool Beeton::send(bool reliable, uint16_t thing, uint8_t id, uint8_t action,
             p.thing = thing; p.id = id; p.action = action;
             p.payload = payload;
             p.seq = seq;
-            p.timeoutMs = 200;
-            p.retriesLeft = 3;
+            p.timeoutMs = BEETON_RETRY_INTERVAL_MS;
+            p.retriesLeft = BEETON_MAX_RETRIES;
             p.nextDueMs = millis() + p.timeoutMs;
             pending[seq] = std::move(p);
         }
@@ -155,7 +155,7 @@ std::vector<uint8_t> Beeton::buildPacket(uint8_t flags, uint16_t seq, uint16_t t
     
     std::vector<uint8_t> out;
     //reserve full header 
-    out.reserve(1+16+1+2+2+1+1+payload.size());
+    out.reserve(1+BEETON_ORIGIN_IP_SIZE+1+2+2+1+1+payload.size());
     //[0] Version
     out.push_back(version);
     //[1..16] Mesh-Local EID (source IP address)
@@ -182,7 +182,6 @@ std::vector<uint8_t> Beeton::buildPacket(uint8_t flags, uint16_t seq, uint16_t t
 // Attempt to parse a received packet
 bool Beeton::parsePacket(const std::vector<uint8_t> &raw, BeetonPacket &packet) {
 
-    static constexpr size_t BEETON_HEADER_SIZE = 24;
     if (raw.size() < BEETON_HEADER_SIZE){
         return false;
     }    
@@ -191,8 +190,8 @@ bool Beeton::parsePacket(const std::vector<uint8_t> &raw, BeetonPacket &packet) 
     //[0] version
     packet.version = raw[off++];
     //[1..16] Origin IPv6
-    std::vector<uint8_t> origin(raw.begin() + off, raw.begin() + off + 16);
-    off += 16;
+    std::vector<uint8_t> origin(raw.begin() + off, raw.begin() + off + BEETON_ORIGIN_IP_SIZE);
+    off += BEETON_ORIGIN_IP_SIZE;
     packet.originIp = formatIpv6(origin);
     // [17] flags
     packet.flags = raw[off++];

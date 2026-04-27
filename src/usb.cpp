@@ -40,7 +40,7 @@ void Beeton::sendFileOverUsb(String filename) {
 }
 
 void Beeton::sendUsb(const char *fmt, ...) {
-    char buffer[256];
+    char buffer[BEETON_LOG_BUFFER_SIZE];
     va_list args;
     va_start(args, fmt);
     vsnprintf(buffer, sizeof(buffer), fmt, args);

@@ -7,6 +7,8 @@
 #include <map>
 #include <vector>
 
+#include "BeetonConfig.h"
+
 
 
 
@@ -81,11 +83,6 @@ class Beeton {
     void loadActions(const char *path);
     void loadDefines(const char *path);
     
-    static constexpr uint8_t BEETON_FLAG_ACK      = 0x01;
-    static constexpr uint8_t BEETON_FLAG_RELIABLE = 0x02;
-    static constexpr uint16_t BEETON_LEADER_THING = 0xFFFF;
-    static constexpr uint8_t  BEETON_LEADER_ID = 0xFF;
-    static constexpr uint8_t  BEETON_LEADER_ACTION = 0xFF;
   
     // --- Reliability state ---
     struct Pending {
