@@ -134,7 +134,7 @@ class Beeton {
     void handlePacket(const std::vector<uint8_t> &raw,
                                const BeetonPacket &packet);
     bool handleAckPacket(const BeetonPacket &packet);
-    bool handleReliablePacket(const std::vector<uint8_t> &raw, const BeetonPacket &packet);
+    bool handleReliablePacket(const BeetonPacket &packet);
     bool handleLeaderControlPacket(const BeetonPacket &packet);
     bool forwardPacketIfLeader(const std::vector<uint8_t> &raw, const BeetonPacket &packet);
     void dispatchLocalPacket(const BeetonPacket &packet);
@@ -151,6 +151,8 @@ class Beeton {
     uint32_t makeThingIdKey(uint16_t thing, uint8_t id);
     uint16_t keyToThing(uint32_t key);
     uint8_t keyToId(uint32_t key);
+    void registerThingOwner(uint16_t thing, uint8_t id, const String &ip);
+    bool getThingOwnerIp(uint16_t thing, uint8_t id, String &outIp);
     
     // --- Internal helpers ---
     uint16_t allocSeq();

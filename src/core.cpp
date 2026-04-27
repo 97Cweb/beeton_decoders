@@ -213,7 +213,7 @@ void Beeton::handlePacket(const std::vector<uint8_t> &raw, const BeetonPacket &p
         return;
     }
 
-    if(handleReliablePacket(raw, packet)) {
+    if(handleReliablePacket(packet)) {
         return;
     }
 
@@ -245,7 +245,7 @@ bool Beeton::handleAckPacket(const BeetonPacket &packet) {
     return true;
 }
 
-bool Beeton::handleReliablePacket(const std::vector<uint8_t> &raw, const BeetonPacket &packet) {
+bool Beeton::handleReliablePacket(const BeetonPacket &packet) {
     if(!(packet.flags & BEETON_FLAG_RELIABLE)) {
         return false;
     }
@@ -275,12 +275,7 @@ bool Beeton::handleLeaderControlPacket(const BeetonPacket &packet) {
         uint16_t thing = readUint16(packet.payload, i);
         uint8_t id = packet.payload[i + 2];
 
-        uint32_t key = makeThingIdKey(thing, id);
-        thingIdToIp[key] = packet.originIp;
-
-        logBeeton(BEETON_LOG_INFO,
-                  "Registered thing=%04X id=%u at %s",
-                  thing, id, packet.originIp.c_str());
+        registerThingOwner(thing, id, packet.originIp);
     }
 
     return true;
@@ -291,11 +286,9 @@ bool Beeton::forwardPacketIfLeader(const std::vector<uint8_t> &raw, const Beeton
         return false;
     }
 
-    uint32_t key = makeThingIdKey(packet.thing, packet.id);
+    String destIp;
 
-    auto it = thingIdToIp.find(key);
-
-    if(it == thingIdToIp.end()) {
+    if(!getThingOwnerIp(packet.thing, packet.id, destIp)) {
         logBeeton(BEETON_LOG_WARN,
                   "Leader has no destination for thing=%04X id=%u",
                   packet.thing,
@@ -303,7 +296,6 @@ bool Beeton::forwardPacketIfLeader(const std::vector<uint8_t> &raw, const Beeton
         return false;
     }
 
-    const String &destIp = it->second;
 
     if(destIp.equals(packet.originIp)) {
         return false;
@@ -324,4 +316,25 @@ void Beeton::dispatchLocalPacket(const BeetonPacket &packet) {
     if(messageCallback) {
         messageCallback(packet.thing, packet.id, packet.action, packet.payload);
     }
+}
+
+void Beeton::registerThingOwner(uint16_t thing, uint8_t id, const String &ip){
+    uint32_t key = makeThingIdKey(thing, id);
+    thingIdToIp[key] = ip;
+
+    logBeeton(BEETON_LOG_INFO,
+              "Registered thing=%04X id=%u at %s",
+              thing, id, ip.c_str());
+}
+bool Beeton::getThingOwnerIp(uint16_t thing, uint8_t id, String &outIp) {
+    uint32_t key = makeThingIdKey(thing, id);
+
+    auto it = thingIdToIp.find(key);
+
+    if(it == thingIdToIp.end()) {
+        return false;
+    }
+
+    outIp = it->second;
+    return true;
 }
