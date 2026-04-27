@@ -10,7 +10,7 @@ String Beeton::getThingName(uint16_t thing) {
     return it->second;
 }
 
-String Beeton::getActionName(const String thingName, uint8_t actionId) {
+String Beeton::getActionName(const String &thingName, uint8_t actionId) {
     auto thingIt = actionIdToName.find(thingName);
 
     if(thingIt == actionIdToName.end()) {

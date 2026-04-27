@@ -82,9 +82,9 @@ bool Beeton::send(bool reliable, uint16_t thing, uint8_t id, uint8_t action, uin
 bool Beeton::send(bool reliable, uint16_t thing, uint8_t id, uint8_t action,
                   const std::vector<uint8_t> &payload) {
     uint8_t flags = 0;
-    uint8_t seq = 0;
+    uint16_t seq = 0;
     if(reliable){
-        flags = 1;
+        flags = BEETON_FLAG_RELIABLE;
         seq = allocSeq();
     }
     // Build packet ONCE (source of truth)
@@ -211,66 +211,118 @@ bool Beeton::parsePacket(const std::vector<uint8_t> &raw, BeetonPacket &packet) 
 }
 
 void Beeton::handlePacket(const std::vector<uint8_t> &raw, const BeetonPacket &packet) {
-
-    logBeeton(BEETON_LOG_INFO, "handlePacket: thing=%04x id=%02x action=%02x flags=%02x",
-          packet.thing, packet.id, packet.action, packet.flags);
-
-    // Handle packet directed to 0xFF (leader): WHO_I_AM messages from joiners
-    if(packet.thing == 0xFFFF && packet.id == 0xFF && packet.action == 0xFF) {
-        if(lightThread && lightThread->getRole() == Role::LEADER) {
-            logBeeton(BEETON_LOG_INFO, "WHO_AM_I received from %s, %u bytes", packet.originIp.c_str(), packet.payload.size());
-
-            // Map each (thing, id) to the joiner's IP
-            for(size_t i = 0; i + 2 < packet.payload.size(); i += 3) {
-                uint16_t t = (packet.payload[i] << 8) | packet.payload[i + 1];
-
-                uint8_t i_ = packet.payload[i + 2];
-                uint32_t key = makeThingIdKey(t, i_);
-                thingIdToIp[key] = packet.originIp;
-                logBeeton(BEETON_LOG_INFO, "[Leader] Mapped %04X:%d to %s\n", t, i_, packet.originIp.c_str());
-            }
-        }
+    if(handleAckPacket(packet)) {
         return;
     }
 
-    // handle messages coming from controllers seeking things
-    else if(lightThread && lightThread->getRole() == Role::LEADER) {
-        uint32_t key = makeThingIdKey(packet.thing, packet.id);
-        String dest = thingIdToIp[key];
-        
-        // If the sender is not the registered owner of the thing, forward the message
-        if(!dest.equals(packet.originIp)) {
-            logBeeton(BEETON_LOG_INFO, "forwarding message to %04X:%d at %s\n", packet.thing, packet.id,
-                      dest.c_str());
-            lightThread->sendUdp(dest,/*lightThreadReliable=*/false, raw);
-            return;
-        }
-
-        // Otherwise, fall through and invoke the leader's local message callback
-    }
-    
-    //ack finish and stop
-    if(packet.flags & BEETON_FLAG_ACK){
-        auto it = pending.find(packet.seq);
-        if(it!= pending.end()){
-            auto p = it->second;
-            pending.erase(it);
-            if(ackSuccessCb) ackSuccessCb(p.thing, p.id, p.action, p.seq);
-        }
+    if(handleReliablePacket(raw, packet)) {
         return;
     }
-    
-    //if reliable request, send if new
-    if(packet.flags & BEETON_FLAG_RELIABLE){
-        if(wasSeenAndMark(packet.originIp, packet.seq, millis())){
-            //already processed
-            return;
-        }
+
+    if(handleLeaderControlPacket(packet)) {
+        return;
+    }
+
+    if(forwardPacketIfLeader(raw, packet)) {
+        return;
+    }
+
+    dispatchLocalPacket(packet);
+}
+
+bool Beeton::handleAckPacket(const BeetonPacket &packet) {
+    if(!(packet.flags & BEETON_FLAG_ACK)) {
+        return false;
+    }
+
+    auto it = pending.find(packet.seq);
+
+    if(it != pending.end()) {
+        auto p = it->second;
+        pending.erase(it);
+        logBeeton(BEETON_LOG_INFO, "ACK received seq=%u", packet.seq);
+        if(ackSuccessCb) ackSuccessCb(p.thing, p.id, p.action, p.seq);
+    }
+
+    return true;
+}
+
+bool Beeton::handleReliablePacket(const std::vector<uint8_t> &raw, const BeetonPacket &packet) {
+    if(!(packet.flags & BEETON_FLAG_RELIABLE)) {
+        return false;
+    }
+
+    if(wasSeenAndMark(packet.originIp, packet.seq, millis())) {
+        logBeeton(BEETON_LOG_INFO, "Duplicate reliable packet seq=%u from %s",
+                  packet.seq, packet.originIp.c_str());
+
         auto ack = buildPacket(BEETON_FLAG_ACK, packet.seq, packet.thing, packet.id, packet.action, {});
-        lightThread->sendUdp(packet.originIp, /*lightThreadReliable=*/false, ack);
+        lightThread->sendUdp(packet.originIp, false, ack);
+
+        return true;
     }
 
-    // Call user callback only for normal messages
+    auto ack = buildPacket(BEETON_FLAG_ACK, packet.seq, packet.thing, packet.id, packet.action, {});
+    lightThread->sendUdp(packet.originIp, false, ack);
+
+    return false;
+}
+
+bool Beeton::handleLeaderControlPacket(const BeetonPacket &packet) {
+    if(!(packet.thing == 0xFFFF && packet.id == 0xFF && packet.action == 0xFF)) {
+        return false;
+    }
+
+    for(size_t i = 0; i + 2 < packet.payload.size(); i += 3) {
+        uint16_t thing = (uint16_t(packet.payload[i]) << 8) | packet.payload[i + 1];
+        uint8_t id = packet.payload[i + 2];
+
+        uint32_t key = makeThingIdKey(thing, id);
+        thingIdToIp[key] = packet.originIp;
+
+        logBeeton(BEETON_LOG_INFO,
+                  "Registered thing=%04X id=%u at %s",
+                  thing, id, packet.originIp.c_str());
+    }
+
+    return true;
+}
+
+bool Beeton::forwardPacketIfLeader(const std::vector<uint8_t> &raw, const BeetonPacket &packet) {
+    if(!lightThread || lightThread->getRole() != Role::LEADER) {
+        return false;
+    }
+
+    uint32_t key = makeThingIdKey(packet.thing, packet.id);
+
+    auto it = thingIdToIp.find(key);
+
+    if(it == thingIdToIp.end()) {
+        logBeeton(BEETON_LOG_WARN,
+                  "Leader has no destination for thing=%04X id=%u",
+                  packet.thing,
+                  packet.id);
+        return false;
+    }
+
+    const String &destIp = it->second;
+
+    if(destIp.equals(packet.originIp)) {
+        return false;
+    }
+
+    logBeeton(BEETON_LOG_INFO,
+              "Leader forwarding thing=%04X id=%u action=%u to %s",
+              packet.thing,
+              packet.id,
+              packet.action,
+              destIp.c_str());
+
+    lightThread->sendUdp(destIp, false, raw);
+    return true;
+}
+
+void Beeton::dispatchLocalPacket(const BeetonPacket &packet) {
     if(messageCallback) {
         messageCallback(packet.thing, packet.id, packet.action, packet.payload);
     }

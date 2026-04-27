@@ -15,7 +15,7 @@ void Beeton::sendAllKnownThingsToUsb() {
         uint8_t id = keyToId(key);
         unsigned long lastSeen = lightThread->getLastEchoTime(ip);
 
-        sendUsb("THING %02X:%d, lastSeen=%lu ms ago\n", thing, id, millis() - lastSeen);
+        sendUsb("THING %04X:%d, lastSeen=%lu ms ago\n", thing, id, millis() - lastSeen);
     }
     sendUsb("END_THINGS");
 }
@@ -53,7 +53,7 @@ void Beeton::sendUsb(const char *fmt, ...) {
 void Beeton::sendCommandFromUsb(String sendCommand) {
     std::vector<String> parts = splitCsv(sendCommand);
     if(parts.size() < 5) {
-        sendUsb("ERROR: Usage SEND,reliable,thing,id,action,payload[0],payload[1]...")
+        sendUsb("ERROR: Usage SEND,reliable,thing,id,action,payload[0],payload[1]...");
         return;
     }
     
@@ -75,37 +75,64 @@ void Beeton::updateUsb() {
 
     while(Serial.available()) {
         char c = Serial.read();
+
         if(c == '\n' || c == '\r') {
             if(input.length() > 0) {
-                input.trim(); // Remove any accidental whitespace
-
-                if(input.equalsIgnoreCase("GETTHINGS")) {
-                    sendAllKnownThingsToUsb();
-                }
-                else if(input.startsWith("GETFILE,")) {
-                    String filename = input.substring(8);
-                    sendFileOverUsb(filename);
-                } 
-                else if(input.startsWith("SEND,")) {
-                    String sendCommand = input.substring(5);
-                    sendCommandFromUsb(sendCommand);
-                }
-                else if (input == "PACKETTEST") {
-                    std::vector<uint8_t> dummy = {1,2,3};
-                    auto raw = this->buildPacket(/*flags=*/0,/*seq=*/0,0x1234, 1, 42, dummy);
-                    BeetonPacket packet;
-                    this->parsePacket(raw, packet);
-                    sendUsb("origin=%s flags=%u seq=%04X thing=%04X id=%u action=%u len=%d",
-                            packet.originIp.c_str(), packet.flags, packet.seq, packet.thing, packet.id, packet.action, packet.payload.size());
-                }
-
-                else {
-                    sendUsb("ECHO: %s", input.c_str());
-                }
+                handleUsbLine(input);
                 input = "";
             }
         } else {
             input += c;
         }
     }
+}
+
+void Beeton::handleUsbLine(String input) {
+    input.trim();
+
+    if(input.length() == 0) {
+        return;
+    }
+
+    if(input.equalsIgnoreCase("GETTHINGS")) {
+        sendAllKnownThingsToUsb();
+        return;
+    }
+
+    if(input.startsWith("GETFILE,")) {
+        String filename = input.substring(8);
+        filename.trim();
+        sendFileOverUsb(filename);
+        return;
+    }
+
+    if(input.startsWith("SEND,")) {
+        String sendCommand = input.substring(5);
+        sendCommandFromUsb(sendCommand);
+        return;
+    }
+
+    if(input.equalsIgnoreCase("PACKETTEST")) {
+        std::vector<uint8_t> dummy = {1, 2, 3};
+        auto raw = buildPacket(0, 0, 0x1234, 1, 42, dummy);
+
+        BeetonPacket packet;
+
+        if(parsePacket(raw, packet)) {
+            sendUsb("origin=%s flags=%u seq=%04X thing=%04X id=%u action=%u len=%u",
+                    packet.originIp.c_str(),
+                    packet.flags,
+                    packet.seq,
+                    packet.thing,
+                    packet.id,
+                    packet.action,
+                    packet.payload.size());
+        } else {
+            sendUsb("PACKETTEST parse failed");
+        }
+
+        return;
+    }
+
+    sendUsb("ECHO: %s", input.c_str());
 }

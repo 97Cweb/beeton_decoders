@@ -120,6 +120,7 @@ class Beeton {
     void sendUsb(const char *fmt, ...);
     void sendCommandFromUsb(String sendCommand);
     void updateUsb();
+    void handleUsbLine(String input);
 
     std::vector<uint8_t> buildPacket(uint8_t flags, uint16_t seq, uint16_t thing, uint8_t id, uint8_t action,
                                          const std::vector<uint8_t> &payload);
@@ -127,6 +128,11 @@ class Beeton {
     // Internal message hook (used by UDP recv)
     void handlePacket(const std::vector<uint8_t> &raw,
                                const BeetonPacket &packet);
+    bool handleAckPacket(const BeetonPacket &packet);
+    bool handleReliablePacket(const std::vector<uint8_t> &raw, const BeetonPacket &packet);
+    bool handleLeaderControlPacket(const BeetonPacket &packet);
+    bool forwardPacketIfLeader(const std::vector<uint8_t> &raw, const BeetonPacket &packet);
+    void dispatchLocalPacket(const BeetonPacket &packet);
 
     void logBeeton(BeetonLogLevel level, const char *fmt, ...);
     std::vector<String> splitCsv(const String &input);
