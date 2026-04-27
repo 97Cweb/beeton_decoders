@@ -6,14 +6,25 @@
 #include <functional>
 #include <map>
 #include <vector>
-#include <functional>
 
-namespace BEETON {
-static constexpr uint8_t BEETON_FLAG_ACK      = 0x01;
-static constexpr uint8_t BEETON_FLAG_RELIABLE = 0x02;
-}
+#include "BeetonConfig.h"
+
+
+
+
 
 enum BeetonLogLevel { BEETON_LOG_DEBUG, BEETON_LOG_INFO, BEETON_LOG_WARN, BEETON_LOG_ERROR };
+
+struct BeetonPacket {
+    uint8_t version = 0;
+    String originIp;
+    uint8_t flags = 0;
+    uint16_t seq = 0;
+    uint16_t thing = 0;
+    uint8_t id = 0;
+    uint8_t action = 0;
+    std::vector<uint8_t> payload;
+};
 
 struct BeetonThing {
     uint16_t thing;
@@ -22,6 +33,8 @@ struct BeetonThing {
 
 class Beeton {
   public:
+
+    
     void begin(LightThread &lt);
     void update();
 
@@ -46,9 +59,11 @@ class Beeton {
     
     
     String getThingName(uint16_t thing);
-    String getActionName(String thingName, uint8_t actionId);
-    uint16_t getThingId(const String &name);
-    uint8_t getActionId(const String &thingName, const String &actionName);
+    String getActionName(const String &thingName, uint8_t actionId);
+    bool getThingId(const String &name, uint16_t &outThing);
+    bool getActionId(const String &thingName, const String &actionName, uint8_t &outAction);
+    bool thingExists(uint16_t thing);
+    bool actionExists(const String &thingName, uint8_t actionId);
 
   private:
     LightThread *lightThread = nullptr;
@@ -68,9 +83,6 @@ class Beeton {
     void loadActions(const char *path);
     void loadDefines(const char *path);
     
-    // --- Constants ---
-    static constexpr uint8_t BEETON_FLAG_ACK      = 0x01;
-    static constexpr uint8_t BEETON_FLAG_RELIABLE = 0x02;
   
     // --- Reliability state ---
     struct Pending {
@@ -94,8 +106,6 @@ class Beeton {
     std::vector<std::pair<SeqKey, uint32_t>> seen;
     
     // State exposed to parser/handler
-    uint8_t  lastFlags = 0;
-    uint16_t lastSeq   = 0;
     uint16_t nextSeq   = 1;
     
     AckSuccessCallback ackSuccessCb;
@@ -109,16 +119,19 @@ class Beeton {
     void sendUsb(const char *fmt, ...);
     void sendCommandFromUsb(String sendCommand);
     void updateUsb();
+    void handleUsbLine(String input);
 
     std::vector<uint8_t> buildPacket(uint8_t flags, uint16_t seq, uint16_t thing, uint8_t id, uint8_t action,
                                          const std::vector<uint8_t> &payload);
-    bool parsePacket(const std::vector<uint8_t> &raw, uint8_t &version, String &originIp, uint8_t &flags, uint16_t &seq, 
-                        uint16_t &thing, uint8_t &id, uint8_t &action, std::vector<uint8_t> &payload);
+    bool parsePacket(const std::vector<uint8_t> &raw, BeetonPacket &packet);
     // Internal message hook (used by UDP recv)
     void handlePacket(const std::vector<uint8_t> &raw,
-                               uint8_t version, const String& originIp, uint8_t flags, uint16_t seq,
-                               uint16_t thing, uint8_t id, uint8_t action,
-                               const std::vector<uint8_t>& payload);
+                               const BeetonPacket &packet);
+    bool handleAckPacket(const BeetonPacket &packet);
+    bool handleReliablePacket(const BeetonPacket &packet);
+    bool handleLeaderControlPacket(const BeetonPacket &packet);
+    bool forwardPacketIfLeader(const std::vector<uint8_t> &raw, const BeetonPacket &packet);
+    void dispatchLocalPacket(const BeetonPacket &packet);
 
     void logBeeton(BeetonLogLevel level, const char *fmt, ...);
     std::vector<String> splitCsv(const String &input);
@@ -128,9 +141,18 @@ class Beeton {
     std::vector<uint8_t> parseIpv6(const String &ip);
     String               formatIpv6(const std::vector<uint8_t> &bytes);
     
+
+    uint32_t makeThingIdKey(uint16_t thing, uint8_t id);
+    uint16_t keyToThing(uint32_t key);
+    uint8_t keyToId(uint32_t key);
+    void registerThingOwner(uint16_t thing, uint8_t id, const String &ip);
+    bool getThingOwnerIp(uint16_t thing, uint8_t id, String &outIp);
     
     // --- Internal helpers ---
     uint16_t allocSeq();
+    bool isLeaderControlPacket(const BeetonPacket &packet);
+    void appendUint16(std::vector<uint8_t> &out, uint16_t value);
+    uint16_t readUint16(const std::vector<uint8_t> &data, size_t offset);
     // === Internal tick for reliability retries ===
     void pumpReliable();
     bool wasSeenAndMark(const String& origin, uint16_t seq, uint32_t nowMs);

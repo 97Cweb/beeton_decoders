@@ -1,8 +1,9 @@
 #include "Beeton.h"
 #include <vector>
+#include <IPAddress.h>
 
 void Beeton::logBeeton(BeetonLogLevel level, const char *fmt, ...) {
-    char buffer[256];
+    char buffer[BEETON_LOG_BUFFER_SIZE];
     va_list args;
     va_start(args, fmt);
     vsnprintf(buffer, sizeof(buffer), fmt, args);
@@ -52,44 +53,27 @@ String Beeton::formatPayload(const std::vector<uint8_t> &payload) {
     return result;
 } 
 
-// Turn "fd00::abcd" into 16 bytes
-std::vector<uint8_t> Beeton::parseIpv6(const String &ip) {
-    std::vector<uint8_t> bytes(16, 0);
-    char buf[40];
-    strncpy(buf, ip.c_str(), sizeof(buf));
-    buf[sizeof(buf)-1] = 0;
 
-    uint16_t segments[8] = {0};
-    int filled = 0;
-    const char *ptr = strtok(buf, ":");
-    bool doubleColon = false;
-    while (ptr && filled < 8) {
-        if (*ptr == 0) break;
-        if (strcmp(ptr, "") == 0) { doubleColon = true; break; }
-        segments[filled++] = strtol(ptr, nullptr, 16);
-        ptr = strtok(nullptr, ":");
+std::vector<uint8_t> Beeton::parseIpv6(const String &ip) {
+    std::vector<uint8_t> bytes(BEETON_ORIGIN_IP_SIZE, 0);
+
+    IPAddress addr;
+
+    if(!addr.fromString(ip)) {
+        logBeeton(BEETON_LOG_WARN, "Invalid IPv6 address: %s", ip.c_str());
+        return bytes;
     }
-    // If :: present, shift trailing parts to the end
-    if (doubleColon) {
-        int remain = 8 - filled;
-        int last = 7;
-        const char *tail = strrchr(ip.c_str(), ':');
-        if (tail && *(tail+1)) {
-            // parse last segments again from end
-            // (quick heuristic good enough for embedded use)
-        }
+
+    for(int i = 0; i < BEETON_ORIGIN_IP_SIZE; i++) {
+        bytes[i] = addr[i];
     }
-    // Write to bytes big-endian
-    for (int i=0;i<8;i++) {
-        bytes[i*2]   = segments[i] >> 8;
-        bytes[i*2+1] = segments[i] & 0xFF;
-    }
+
     return bytes;
 }
 
 // Turn 16 bytes back into "xxxx:xxxx:..." compressed form
 String Beeton::formatIpv6(const std::vector<uint8_t> &bytes) {
-    char buf[40];
+    char buf[BEETON_IPV6_TEXT_BUFFER_SIZE];
     snprintf(buf, sizeof(buf),
         "%x:%x:%x:%x:%x:%x:%x:%x",
         (bytes[0]<<8)|bytes[1], (bytes[2]<<8)|bytes[3],
@@ -113,12 +97,15 @@ bool Beeton::wasSeenAndMark(const String& origin, uint16_t seq, uint32_t nowMs) 
             return true;
         }
     }
-    if (seen.size() > 32) seen.erase(seen.begin());
+    if (seen.size() > BEETON_SEEN_PACKET_MAX) seen.erase(seen.begin());
     seen.push_back({ SeqKey{origin, seq}, nowMs });
     return false;
 }
 
 void Beeton::pumpReliable() {
+    if(!lightThread) {
+        return;
+    }
     uint32_t now = millis();
     std::vector<uint16_t> done;
 
@@ -134,7 +121,7 @@ void Beeton::pumpReliable() {
 
         // resend same packet bytes (rebuild with same flags/seq)
         auto raw = buildPacket(BEETON_FLAG_RELIABLE, p.seq, p.thing, p.id, p.action, p.payload);
-        lightThread->sendUdp(p.destIp, /*reliableTransport*/ false, raw);
+        lightThread->sendUdp(p.destIp, raw);
 
         p.retriesLeft--;
         p.nextDueMs = now + p.timeoutMs;
@@ -142,10 +129,36 @@ void Beeton::pumpReliable() {
     for (auto s : done) pending.erase(s);
 
     // trim dedupe entries
-    const uint32_t maxAge = 3000;
     auto it = seen.begin();
     while (it != seen.end()) {
-        if (now - it->second > maxAge) it = seen.erase(it);
+        if (now - it->second > BEETON_SEEN_PACKET_TTL_MS) it = seen.erase(it);
         else ++it;
     }
+}
+
+uint32_t Beeton::makeThingIdKey(uint16_t thing, uint8_t id) {
+    return (uint32_t(thing) << 8) | uint32_t(id);
+}
+
+uint16_t Beeton::keyToThing(uint32_t key) {
+    return uint16_t((key >> 8) & 0xFFFF);
+}
+
+uint8_t Beeton::keyToId(uint32_t key) {
+    return uint8_t(key & 0xFF);
+}
+
+bool Beeton::isLeaderControlPacket(const BeetonPacket &packet) {
+    return packet.thing == BEETON_LEADER_THING &&
+           packet.id == BEETON_LEADER_ID &&
+           packet.action == BEETON_LEADER_ACTION;
+}
+
+void Beeton::appendUint16(std::vector<uint8_t> &out, uint16_t value) {
+    out.push_back(uint8_t((value >> 8) & 0xFF));
+    out.push_back(uint8_t(value & 0xFF));
+}
+
+uint16_t Beeton::readUint16(const std::vector<uint8_t> &data, size_t offset) {
+    return (uint16_t(data[offset]) << 8) | uint16_t(data[offset + 1]);
 }
