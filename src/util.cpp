@@ -119,6 +119,9 @@ bool Beeton::wasSeenAndMark(const String& origin, uint16_t seq, uint32_t nowMs) 
 }
 
 void Beeton::pumpReliable() {
+    if(!lightThread) {
+        return;
+    }
     uint32_t now = millis();
     std::vector<uint16_t> done;
 

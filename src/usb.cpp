@@ -15,7 +15,7 @@ void Beeton::sendAllKnownThingsToUsb() {
         uint8_t id = keyToId(key);
         unsigned long lastSeen = lightThread->getLastEchoTime(ip);
 
-        sendUsb("THING %04X:%d, lastSeen=%lu ms ago\n", thing, id, millis() - lastSeen);
+        sendUsb("THING %04X:%d, lastSeen=%lu ms ago", thing, id, millis() - lastSeen);
     }
     sendUsb("END_THINGS");
 }

@@ -90,6 +90,11 @@ bool Beeton::send(bool reliable, uint16_t thing, uint8_t id, uint8_t action,
     std::vector<uint8_t> packet = buildPacket(flags, seq, thing, id, action, payload);
     
     if (lightThread->getRole() == Role::LEADER) {
+
+        if(!lightThread) {
+            return false;
+        }
+
         String destIp;
 
         if(!getThingOwnerIp(thing, id, destIp)) {

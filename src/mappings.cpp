@@ -112,7 +112,6 @@ void Beeton::loadDefines(const char *path) {
         if(comma > 0) {
             String thing = line.substring(0, comma);
             uint8_t id = line.substring(comma + 1).toInt();
-            Serial.println(line);
             if(nameToThing.count(thing)) {
                 localThings.push_back({nameToThing[thing], id});
             }
