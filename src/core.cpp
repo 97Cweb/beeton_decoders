@@ -50,7 +50,7 @@ void Beeton::begin(LightThread &lt) {
             payload.push_back(entry.id);
         }
 
-        this->send(true, 0xFFFF,0xFF,0xFF,payload);
+        this->send(true, BEETON::BEETON_LEADER_THING,BEETON::BEETON_LEADER_ID,BEETON::BEETON_LEADER_ACTION,payload);
         logBeeton(BEETON_LOG_INFO, "Joiner Sent WHO_AM_I automatically");
     });
 }
@@ -163,11 +163,9 @@ std::vector<uint8_t> Beeton::buildPacket(uint8_t flags, uint16_t seq, uint16_t t
     out.push_back(flags);
 
     // [18..19] seq
-    out.push_back((seq >> 8) & 0xFF);
-    out.push_back(seq & 0xFF);
+    appendUint16(out, seq);
     //[20..21] Thing
-    out.push_back((thing >> 8) & 0xff);   // high byte
-    out.push_back(thing & 0xff); // low byte
+    appendUint16(out, thing);
     //[22] ID
     out.push_back(id);
     //[23] action
@@ -196,10 +194,10 @@ bool Beeton::parsePacket(const std::vector<uint8_t> &raw, BeetonPacket &packet) 
     // [17] flags
     packet.flags = raw[off++];
     // [18..19] seq
-    packet.seq = (uint16_t(raw[off]) << 8) | uint16_t(raw[off + 1]);
+    packet.seq = readUint16(raw, off);
     off += 2;
     //[20..21] Thing ID (Big Endian)
-    packet.thing = (uint16_t(raw[off]) << 8) | uint16_t(raw[off+1]);
+    packet.thing = readUint16(raw, off);
     off += 2;
     //[22] ID
     packet.id = raw[off++];
@@ -269,12 +267,12 @@ bool Beeton::handleReliablePacket(const std::vector<uint8_t> &raw, const BeetonP
 }
 
 bool Beeton::handleLeaderControlPacket(const BeetonPacket &packet) {
-    if(!(packet.thing == 0xFFFF && packet.id == 0xFF && packet.action == 0xFF)) {
+    if(!isLeaderControlPacket(packet)) {
         return false;
     }
 
     for(size_t i = 0; i + 2 < packet.payload.size(); i += 3) {
-        uint16_t thing = (uint16_t(packet.payload[i]) << 8) | packet.payload[i + 1];
+        uint16_t thing = readUint16(packet.payload, i);
         uint8_t id = packet.payload[i + 2];
 
         uint32_t key = makeThingIdKey(thing, id);

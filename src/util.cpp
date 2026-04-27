@@ -161,3 +161,18 @@ uint16_t Beeton::keyToThing(uint32_t key) {
 uint8_t Beeton::keyToId(uint32_t key) {
     return uint8_t(key & 0xFF);
 }
+
+bool Beeton::isLeaderControlPacket(const BeetonPacket &packet) {
+    return packet.thing == BEETON::BEETON_LEADER_THING &&
+           packet.id == BEETON::BEETON_LEADER_ID &&
+           packet.action == BEETON::BEETON_LEADER_ACTION;
+}
+
+void Beeton::appendUint16(std::vector<uint8_t> &out, uint16_t value) {
+    out.push_back(uint8_t((value >> 8) & 0xFF));
+    out.push_back(uint8_t(value & 0xFF));
+}
+
+uint16_t Beeton::readUint16(const std::vector<uint8_t> &data, size_t offset) {
+    return (uint16_t(data[offset]) << 8) | uint16_t(data[offset + 1]);
+}

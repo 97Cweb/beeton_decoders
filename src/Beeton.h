@@ -11,7 +11,12 @@
 namespace BEETON {
 static constexpr uint8_t BEETON_FLAG_ACK      = 0x01;
 static constexpr uint8_t BEETON_FLAG_RELIABLE = 0x02;
+static constexpr uint16_t BEETON_LEADER_THING = 0xFFFF;
+static constexpr uint8_t  BEETON_LEADER_ID = 0xFF;
+static constexpr uint8_t  BEETON_LEADER_ACTION = 0xFF;
 }
+
+
 
 enum BeetonLogLevel { BEETON_LOG_DEBUG, BEETON_LOG_INFO, BEETON_LOG_WARN, BEETON_LOG_ERROR };
 
@@ -149,6 +154,9 @@ class Beeton {
     
     // --- Internal helpers ---
     uint16_t allocSeq();
+    bool isLeaderControlPacket(const BeetonPacket &packet);
+    void appendUint16(std::vector<uint8_t> &out, uint16_t value);
+    uint16_t readUint16(const std::vector<uint8_t> &data, size_t offset);
     // === Internal tick for reliability retries ===
     void pumpReliable();
     bool wasSeenAndMark(const String& origin, uint16_t seq, uint32_t nowMs);
