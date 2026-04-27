@@ -149,7 +149,7 @@ void BeetonAudio::update(){
   size_t bytesToWrite = sizeof(_outBuffer);
   size_t bytesWritten = 0;
   
-  esp_err_t err = i2s_channel_write(_txChan, _outBuffer, bytesToWrite, &bytesWritten, portMAX_DELAY);
+  esp_err_t err = i2s_channel_write(_txChan, _outBuffer, bytesToWrite, &bytesWritten, 0);
 
   if (err != ESP_OK || bytesWritten != bytesToWrite) {
     Serial.printf("BeetonAudio: write failed err=%d bw=%u/%u\n",

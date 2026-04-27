@@ -45,12 +45,11 @@ void Beeton::begin(LightThread &lt) {
         std::vector<uint8_t> payload;
         for(const auto &entry : localThings) {
             logBeeton(BEETON_LOG_INFO, "Joiner adding thing id: %04X:%d", entry.thing, entry.id);
-            payload.push_back((entry.thing >> 8) & 0xff);
-            payload.push_back(entry.thing & 0xff);
+            appendUint16(payload, entry.thing);
             payload.push_back(entry.id);
         }
 
-        this->send(true, BEETON::BEETON_LEADER_THING,BEETON::BEETON_LEADER_ID,BEETON::BEETON_LEADER_ACTION,payload);
+        this->send(true, BEETON_LEADER_THING,BEETON_LEADER_ID,BEETON_LEADER_ACTION,payload);
         logBeeton(BEETON_LOG_INFO, "Joiner Sent WHO_AM_I automatically");
     });
 }
@@ -91,20 +90,19 @@ bool Beeton::send(bool reliable, uint16_t thing, uint8_t id, uint8_t action,
     std::vector<uint8_t> packet = buildPacket(flags, seq, thing, id, action, payload);
     
     if (lightThread->getRole() == Role::LEADER) {
-        uint32_t key = makeThingIdKey(thing, id);
+        String destIp;
 
-        if (!thingIdToIp.count(key)) {
-            logBeeton(BEETON_LOG_WARN, "Beeton: No IP for thing %u id %u", thing, id);
+        if(!getThingOwnerIp(thing, id, destIp)) {
+            logBeeton(BEETON_LOG_WARN, "Beeton: No IP for thing %04X id %u", thing, id);
             return false;
         }
 
-        // TRANSPORT reliability OFF; Beeton handles it now
-        bool ok = lightThread->sendUdp(thingIdToIp[key], packet);
+        bool ok = lightThread->sendUdp(destIp, packet);
 
         // Track pending if we requested ACK
         if (ok && reliable) {
             Pending p;
-            p.destIp = thingIdToIp[key];
+            p.destIp = destIp;
             p.originIp = lightThread->getMyIp();
             p.thing = thing; p.id = id; p.action = action;
             p.payload = payload;

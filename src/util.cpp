@@ -163,9 +163,9 @@ uint8_t Beeton::keyToId(uint32_t key) {
 }
 
 bool Beeton::isLeaderControlPacket(const BeetonPacket &packet) {
-    return packet.thing == BEETON::BEETON_LEADER_THING &&
-           packet.id == BEETON::BEETON_LEADER_ID &&
-           packet.action == BEETON::BEETON_LEADER_ACTION;
+    return packet.thing == BEETON_LEADER_THING &&
+           packet.id == BEETON_LEADER_ID &&
+           packet.action == BEETON_LEADER_ACTION;
 }
 
 void Beeton::appendUint16(std::vector<uint8_t> &out, uint16_t value) {
