@@ -14,7 +14,7 @@ void Beeton::begin(LightThread &lt) {
 
     // Register callback for all incoming UDP messages
     lightThread->registerUdpReceiveCallback(
-        [this](const String &srcIp, const bool lightThreadReliable, const std::vector<uint8_t> &raw) {
+        [this](const String &srcIp, const std::vector<uint8_t> &raw) {
             if(raw.size() < 24) {
                 logBeeton(BEETON_LOG_DEBUG, "Ignored short packet from %s (len=%d)", srcIp.c_str(),
                           raw.size());
@@ -99,7 +99,7 @@ bool Beeton::send(bool reliable, uint16_t thing, uint8_t id, uint8_t action,
         }
 
         // TRANSPORT reliability OFF; Beeton handles it now
-        bool ok = lightThread->sendUdp(thingIdToIp[key], /*lightThreadReliable=*/false, packet);
+        bool ok = lightThread->sendUdp(thingIdToIp[key], packet);
 
         // Track pending if we requested ACK
         if (ok && reliable) {
@@ -118,7 +118,7 @@ bool Beeton::send(bool reliable, uint16_t thing, uint8_t id, uint8_t action,
     }
     else if (lightThread->getRole() == Role::JOINER) {
         // Send to leader; leader forwards (must preserve packet as-is)
-        bool ok = lightThread->sendUdp(lightThread->getLeaderIp(), /*lightThreadReliable=*/false, packet);
+        bool ok = lightThread->sendUdp(lightThread->getLeaderIp(), packet);
 
         if (ok && reliable) {
             Pending p;
@@ -255,13 +255,13 @@ bool Beeton::handleReliablePacket(const BeetonPacket &packet) {
                   packet.seq, packet.originIp.c_str());
 
         auto ack = buildPacket(BEETON_FLAG_ACK, packet.seq, packet.thing, packet.id, packet.action, {});
-        lightThread->sendUdp(packet.originIp, false, ack);
+        lightThread->sendUdp(packet.originIp, ack);
 
         return true;
     }
 
     auto ack = buildPacket(BEETON_FLAG_ACK, packet.seq, packet.thing, packet.id, packet.action, {});
-    lightThread->sendUdp(packet.originIp, false, ack);
+    lightThread->sendUdp(packet.originIp, ack);
 
     return false;
 }
@@ -308,7 +308,7 @@ bool Beeton::forwardPacketIfLeader(const std::vector<uint8_t> &raw, const Beeton
               packet.action,
               destIp.c_str());
 
-    lightThread->sendUdp(destIp, false, raw);
+    lightThread->sendUdp(destIp, raw);
     return true;
 }
 
