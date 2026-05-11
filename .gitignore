@@ -20,3 +20,8 @@ Thumbs.db
 # Ignore VSCode or PlatformIO configs (if used)
 .vscode/
 .pio/
+
+# Local editor/build files
+.cache/
+.arduino-build/
+compile_commands.json
