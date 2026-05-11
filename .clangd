@@ -1,0 +1,7 @@
+CompileFlags:
+  Remove:
+    - -fno-tree-switch-conversion
+    - -fstrict-volatile-bitfields
+
+Diagnostics:
+  UnusedIncludes: None
