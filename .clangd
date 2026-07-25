@@ -1,7 +1,30 @@
 CompileFlags:
   Remove:
-    - -fno-tree-switch-conversion
     - -fstrict-volatile-bitfields
+    - -fno-tree-switch-conversion
+  Add:
+    - -xc++
+    - -std=gnu++17
 
-Diagnostics:
-  UnusedIncludes: None
+    # LightThread itself
+    - -I/mnt/storage/Libraries/Arduino/libraries/Beeton/src
+    - -I/mnt/storage/Libraries/Arduino/libraries/LightThread/src
+
+    # Arduino ESP32 core
+    - -I/home/collin/.arduino15/packages/esp32/hardware/esp32/3.3.11/cores/esp32
+
+    # ESP32-C6 board variant
+    - -I/home/collin/.arduino15/packages/esp32/hardware/esp32/3.3.11/variants/esp32c6
+
+    # Common ESP32 bundled libraries
+    - -I/home/collin/.arduino15/packages/esp32/hardware/esp32/3.3.11/libraries/Wire/src
+    - -I/home/collin/.arduino15/packages/esp32/hardware/esp32/3.3.11/libraries/SPI/src
+    - -I/home/collin/.arduino15/packages/esp32/hardware/esp32/3.3.11/libraries/FS/src
+    - -I/home/collin/.arduino15/packages/esp32/hardware/esp32/3.3.11/libraries/SD/src
+    - -I/home/collin/.arduino15/packages/esp32/hardware/esp32/3.3.11/libraries/OpenThread/src
+
+    # Tell Arduino headers this is an ESP32-C6 target
+    - -DARDUINO=10819
+    - -DARDUINO_ARCH_ESP32
+    - -DESP32
+    - -DCONFIG_IDF_TARGET_ESP32C6
