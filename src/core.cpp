@@ -65,6 +65,19 @@ void Beeton::update() {
     pumpReliable();
 }
 
+bool Beeton::goDormant() {
+    if(!lightThread) {
+        logBeeton(
+            BEETON_LOG_ERROR,
+            "goDormant() called before Beeton::begin()"
+        );
+
+        return false;
+    }
+
+    return lightThread->goDormant();
+}
+
 // Overload for sending a message without payload
 bool Beeton::send(bool reliable, uint16_t thing, uint8_t id, uint8_t action) {
     std::vector<uint8_t> payload; // empty vector

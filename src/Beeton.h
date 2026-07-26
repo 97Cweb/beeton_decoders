@@ -37,6 +37,7 @@ class Beeton {
     
     void begin(LightThread &lt);
     void update();
+    bool goDormant();
 
     // Simple send API
     bool send(bool reliable, uint16_t thing, uint8_t id, uint8_t action);
@@ -64,6 +65,8 @@ class Beeton {
     bool getActionId(const String &thingName, const String &actionName, uint8_t &outAction);
     bool thingExists(uint16_t thing);
     bool actionExists(const String &thingName, uint8_t actionId);
+
+    
 
   private:
     LightThread *lightThread = nullptr;
