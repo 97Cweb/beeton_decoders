@@ -49,9 +49,10 @@ void Beeton::begin(LightThread &lt) {
             payload.push_back(entry.id);
         }
 
-        this->send(true, BEETON_LEADER_THING,BEETON_LEADER_ID,BEETON_LEADER_ACTION,payload);
+        this->send(true, BEETON_LEADER_THING,BEETON_LEADER_ID,BEETON_LEADER_ACTION_ANNOUNCE,payload);
         logBeeton(BEETON_LOG_INFO, "Joiner Sent WHO_AM_I automatically");
     });
+    isSetup = true;
 }
 
 // Forward update call to LightThread instance
@@ -66,7 +67,7 @@ void Beeton::update() {
 }
 
 bool Beeton::goDormant() {
-    if(!lightThread) {
+    if(!isReady()) {
         logBeeton(
             BEETON_LOG_ERROR,
             "goDormant() called before Beeton::begin()"
@@ -95,6 +96,11 @@ bool Beeton::send(bool reliable, uint16_t thing, uint8_t id, uint8_t action,
                   const std::vector<uint8_t> &payload) {
     uint8_t flags = 0;
     uint16_t seq = 0;
+
+    if(!isReady()){
+        return false;
+    }
+
     if(reliable){
         flags = BEETON_FLAG_RELIABLE;
         seq = allocSeq();
@@ -104,9 +110,6 @@ bool Beeton::send(bool reliable, uint16_t thing, uint8_t id, uint8_t action,
     
     if (lightThread->getRole() == Role::LEADER) {
 
-        if(!lightThread) {
-            return false;
-        }
 
         String destIp;
 
@@ -282,22 +285,43 @@ bool Beeton::handleReliablePacket(const BeetonPacket &packet) {
 }
 
 bool Beeton::handleLeaderControlPacket(const BeetonPacket &packet) {
-    if(!isLeaderControlPacket(packet)) {
+    if(!isLeaderAddress(packet)) {
         return false;
     }
 
-    for(size_t i = 0; i + 2 < packet.payload.size(); i += 3) {
-        uint16_t thing = readUint16(packet.payload, i);
-        uint8_t id = packet.payload[i + 2];
-
-        registerThingOwner(thing, id, packet.originIp);
+    // These internal behaviours only exist on the leader.
+    if(!lightThread || lightThread->getRole() != Role::LEADER) {
+        return false;
     }
 
-    return true;
+    switch(packet.action) {
+        case BEETON_LEADER_ACTION_ANNOUNCE:
+            for(size_t i = 0; i + 2 < packet.payload.size(); i += 3) {
+                uint16_t thing = readUint16(packet.payload, i);
+                uint8_t id = packet.payload[i + 2];
+
+                registerThingOwner(thing, id, packet.originIp);
+            }
+
+            return true;
+
+        case BEETON_LEADER_ACTION_SERIAL:
+            sendRemoteSerialPacket(packet);
+            return true;
+
+        default:
+            // Ordinary user-defined leader action.
+            // Allow dispatchLocalPacket() to receive it.
+            return false;
+    }
 }
 
 bool Beeton::forwardPacketIfLeader(const std::vector<uint8_t> &raw, const BeetonPacket &packet) {
-    if(!lightThread || lightThread->getRole() != Role::LEADER) {
+    if(!isReady() || lightThread->getRole() != Role::LEADER) {
+        return false;
+    }
+
+     if(isLeaderAddress(packet)) {
         return false;
     }
 
@@ -352,4 +376,15 @@ bool Beeton::getThingOwnerIp(uint16_t thing, uint8_t id, String &outIp) {
 
     outIp = it->second;
     return true;
+}
+
+bool Beeton::isReady(){
+    if(!lightThread){
+        return false;    
+    }
+    if(lightThread->isReady() && isSetup){
+        return true;
+    }
+
+    return false;
 }
