@@ -37,6 +37,7 @@ class Beeton {
     
     void begin(LightThread &lt);
     void update();
+    bool isReady();
     bool goDormant();
 
     // Simple send API
@@ -85,6 +86,8 @@ class Beeton {
     void loadThings(const char *path);
     void loadActions(const char *path);
     void loadDefines(const char *path);
+
+    bool isSetup = false;
     
   
     // --- Reliability state ---
@@ -108,8 +111,6 @@ class Beeton {
     std::map<uint16_t, Pending> pending;
     std::vector<std::pair<SeqKey, uint32_t>> seen;
     
-    // State exposed to parser/handler
-    uint16_t nextSeq   = 1;
     
     AckSuccessCallback ackSuccessCb;
     AckFailCallback    ackFailCb;
@@ -123,6 +124,7 @@ class Beeton {
     void sendCommandFromUsb(String sendCommand);
     void updateUsb();
     void handleUsbLine(String input);
+    void sendRemoteSerialPacket(const BeetonPacket &packet);
 
     std::vector<uint8_t> buildPacket(uint8_t flags, uint16_t seq, uint16_t thing, uint8_t id, uint8_t action,
                                          const std::vector<uint8_t> &payload);
@@ -153,7 +155,8 @@ class Beeton {
     
     // --- Internal helpers ---
     uint16_t allocSeq();
-    bool isLeaderControlPacket(const BeetonPacket &packet);
+    bool isLeaderAddress(const BeetonPacket &packet);
+    bool isLeaderInternalAction(uint8_t action);
     void appendUint16(std::vector<uint8_t> &out, uint16_t value);
     uint16_t readUint16(const std::vector<uint8_t> &data, size_t offset);
     // === Internal tick for reliability retries ===

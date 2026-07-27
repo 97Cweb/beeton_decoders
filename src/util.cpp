@@ -1,6 +1,14 @@
 #include "Beeton.h"
 #include <vector>
 #include <IPAddress.h>
+#include <esp_random.h>
+
+namespace {
+RTC_DATA_ATTR uint32_t retainedSeqMagic = 0;
+RTC_DATA_ATTR uint16_t retainedNextSeq = 0;
+
+constexpr uint32_t SEQ_MAGIC = 0xBEE70001;
+}
 
 void Beeton::logBeeton(BeetonLogLevel level, const char *fmt, ...) {
     char buffer[BEETON_LOG_BUFFER_SIZE];
@@ -85,8 +93,24 @@ String Beeton::formatIpv6(const std::vector<uint8_t> &bytes) {
 
 
 uint16_t Beeton::allocSeq() {
-    if (++nextSeq == 0) nextSeq = 1;
-    return nextSeq;
+    if(retainedSeqMagic != SEQ_MAGIC) {
+        retainedSeqMagic = SEQ_MAGIC;
+
+        // Begin at an unpredictable position after a cold boot.
+        retainedNextSeq = static_cast<uint16_t>(esp_random());
+
+        if(retainedNextSeq == 0) {
+            retainedNextSeq = 1;
+        }
+    }
+
+    ++retainedNextSeq;
+
+    if(retainedNextSeq == 0) {
+        retainedNextSeq = 1;
+    }
+
+    return retainedNextSeq;
 }
 
 bool Beeton::wasSeenAndMark(const String& origin, uint16_t seq, uint32_t nowMs) {
@@ -97,7 +121,7 @@ bool Beeton::wasSeenAndMark(const String& origin, uint16_t seq, uint32_t nowMs) 
             return true;
         }
     }
-    if (seen.size() > BEETON_SEEN_PACKET_MAX) seen.erase(seen.begin());
+    if (seen.size() >= BEETON_SEEN_PACKET_MAX) seen.erase(seen.begin());
     seen.push_back({ SeqKey{origin, seq}, nowMs });
     return false;
 }
@@ -148,10 +172,14 @@ uint8_t Beeton::keyToId(uint32_t key) {
     return uint8_t(key & 0xFF);
 }
 
-bool Beeton::isLeaderControlPacket(const BeetonPacket &packet) {
+bool Beeton::isLeaderAddress(const BeetonPacket &packet) {
     return packet.thing == BEETON_LEADER_THING &&
-           packet.id == BEETON_LEADER_ID &&
-           packet.action == BEETON_LEADER_ACTION;
+           packet.id == BEETON_LEADER_ID;
+}
+
+bool Beeton::isLeaderInternalAction(uint8_t action) {
+    return action == BEETON_LEADER_ACTION_ANNOUNCE ||
+           action == BEETON_LEADER_ACTION_SERIAL;
 }
 
 void Beeton::appendUint16(std::vector<uint8_t> &out, uint16_t value) {

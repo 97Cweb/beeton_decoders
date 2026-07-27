@@ -13,9 +13,8 @@ void Beeton::sendAllKnownThingsToUsb() {
 
         uint16_t thing = keyToThing(key);
         uint8_t id = keyToId(key);
-        unsigned long lastSeen = lightThread->getLastEchoTime(ip);
 
-        sendUsb("THING %04X:%d, lastSeen=%lu ms ago", thing, id, millis() - lastSeen);
+        sendUsb("THING %04X:%d", thing, id);
     }
     sendUsb("END_THINGS");
 }
@@ -48,6 +47,14 @@ void Beeton::sendUsb(const char *fmt, ...) {
 
     Serial.print("[USB] ");
     Serial.println(buffer); // for now just output directly
+} 
+
+void Beeton::sendRemoteSerialPacket(const BeetonPacket &packet){
+    sendUsb(
+        "REMOTE,%s,%s",
+        packet.originIp.c_str(),
+        formatPayload(packet.payload).c_str()
+    );
 }
 
 void Beeton::sendCommandFromUsb(String sendCommand) {
