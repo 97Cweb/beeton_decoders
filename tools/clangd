@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+
+exec clangd \
+    --background-index \
+    --clang-tidy \
+    --completion-style=detailed \
+    --query-driver="$HOME/.arduino15/packages/esp32/tools/esp-rv32/*/bin/riscv32-esp-elf-*" \
+    "$@"

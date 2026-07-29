@@ -6,8 +6,11 @@ Beeton beeton;
 bool packetSent = false;
 
 void successReceive(uint16_t thing, uint8_t id, uint8_t action, uint16_t seq){
-  Serial.println("ack received");
   beeton.goDormant();
+}
+
+void failReceive(uint16_t thing, uint8_t id, uint8_t action, uint16_t seq){
+  beeton.send(true,0xFFFF,0xFF,0x00);
 }
 
 void setup() {
@@ -23,9 +26,7 @@ void loop() {
     beeton.update();
     delay(10);  
     if(!packetSent){
-      Serial.println("waiting to send");
       if(beeton.send(true,0xFFFF,0xFF,0x00)){
-        Serial.println("sent");
         packetSent = true;
       }
     }
