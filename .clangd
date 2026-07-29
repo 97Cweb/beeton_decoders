@@ -5,6 +5,8 @@ CompileFlags:
   Add:
     - -xc++
     - -std=gnu++17
+    
+    - --query-driver=/home/collin/.arduino15/packages/esp32/tools/esp-rv32/*/bin/riscv32-esp-elf-*
 
     # LightThread itself
     - -I/mnt/storage/Libraries/Arduino/libraries/Beeton/src
