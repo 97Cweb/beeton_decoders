@@ -1,4 +1,5 @@
 #include "Beeton.h"
+#include "Routing.h"
 
 #include <FS.h>
 #include <SD.h>
@@ -7,7 +8,7 @@ void Beeton::sendAllKnownThingsToUsb() {
         return;
     }
     sendUsb("BEGIN_THINGS");
-    for(const auto &entry : thingIdToIp) {
+    for(const auto &entry : routingGetKnownDestinations()) {
         uint32_t key = entry.first;
         const String &ip = entry.second;
 
@@ -59,7 +60,7 @@ void Beeton::sendRemoteSerialPacket(const BeetonPacket &packet){
 
 void Beeton::sendCommandFromUsb(String sendCommand) {
     std::vector<String> parts = splitCsv(sendCommand);
-    if(parts.size() < 5) {
+    if(parts.size() < 4) {
         sendUsb("ERROR: Usage SEND,reliable,thing,id,action,payload[0],payload[1]...");
         return;
     }

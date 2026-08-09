@@ -71,7 +71,6 @@ class Beeton {
 
   private:
     LightThread *lightThread = nullptr;
-    std::map<uint32_t, String> thingIdToIp; // thing<<8 | id → IP
     std::vector<BeetonThing> localThings;
     std::map<String, uint16_t> nameToThing;
     std::map<uint16_t, String> thingToName;
@@ -150,8 +149,6 @@ class Beeton {
     uint32_t makeThingIdKey(uint16_t thing, uint8_t id);
     uint16_t keyToThing(uint32_t key);
     uint8_t keyToId(uint32_t key);
-    void registerThingOwner(uint16_t thing, uint8_t id, const String &ip);
-    bool getThingOwnerIp(uint16_t thing, uint8_t id, String &outIp);
     
     // --- Internal helpers ---
     uint16_t allocSeq();
