@@ -132,7 +132,6 @@ private:
   std::vector<uint8_t> parseIpv6(const String &ip);
   String formatIpv6(const std::vector<uint8_t> &bytes);
 
-  uint32_t makeThingIdKey(uint16_t thing, uint8_t id);
   uint16_t keyToThing(uint32_t key);
   uint8_t keyToId(uint32_t key);
 

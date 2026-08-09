@@ -162,10 +162,6 @@ void Beeton::pumpReliable() {
   }
 }
 
-uint32_t Beeton::makeThingIdKey(uint16_t thing, uint8_t id) {
-  return (uint32_t(thing) << 8) | uint32_t(id);
-}
-
 uint16_t Beeton::keyToThing(uint32_t key) { return uint16_t((key >> 8) & 0xFFFF); }
 
 uint8_t Beeton::keyToId(uint32_t key) { return uint8_t(key & 0xFF); }
