@@ -140,7 +140,6 @@ bool Beeton::send(bool reliable, uint16_t thing, uint8_t id, uint8_t action,
     if(ok && reliable) {
       Pending p;
       p.destIp = lightThread->getLeaderIp(); // first hop is leader
-      p.originIp = lightThread->getMyIp();
       p.thing = thing;
       p.id = id;
       p.action = action;
