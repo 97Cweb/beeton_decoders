@@ -23,7 +23,12 @@ namespace {
             }
             const uint32_t digit = static_cast<uint32_t>(c-'0');
 
-            if(parsed > (maximum - digit)/10){
+            if(
+                    parsed > (maximum - digit)/10 || (
+                parsed == maximum / 10 && 
+                digit > maximum % 10
+                )
+                    ){
                 return false;
             }
             parsed = parsed * 10 + digit;
@@ -32,26 +37,6 @@ namespace {
         return true;
     }
 }
-/*
- * TODO: Strict USB SEND parsing
- *
- * Validate:
- *   SEND,reliable,thing,id,action[,payload...]
- *
- * Required fixes:
- *
- * - Preserve trailing empty fields so malformed commands are not silently
- *   accepted.
- * - Trim surrounding whitespace.
- * - Require every numeric field to contain only decimal digits.
- * - Require reliable to be 0 or 1.
- * - Validate thing as 0..65535.
- * - Validate id, action, and every payload byte as 0..255.
- * - Reject empty payload fields, overflow, signs, and trailing characters.
- * - Return an error identifying the invalid field.
- *
- * Consider sharing one strict unsigned-integer helper with mappings.cpp.
- */
 void Beeton::sendAllKnownThingsToUsb() {
   if(!lightThread) {
     return;
