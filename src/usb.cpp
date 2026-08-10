@@ -3,7 +3,35 @@
 
 #include <FS.h>
 #include <SD.h>
+#include <cstddef>
+#include <cstdint>
+#include <sys/types.h>
 
+namespace {
+    bool parseUnsignedField(String value, uint32_t maximum, uint32_t &result){
+        value.trim();
+        if(value.length()==0){
+            return false;
+        }
+        uint32_t parsed = 0;
+
+        for(size_t i = 0; i<value.length();++i){
+            const char c = value[i];
+
+            if(c < '0' || c > '9'){
+                return false;
+            }
+            const uint32_t digit = static_cast<uint32_t>(c-'0');
+
+            if(parsed > (maximum - digit)/10){
+                return false;
+            }
+            parsed = parsed * 10 + digit;
+        }
+        result = parsed;
+        return true;
+    }
+}
 /*
  * TODO: Strict USB SEND parsing
  *
@@ -76,22 +104,55 @@ void Beeton::sendRemoteSerialPacket(const BeetonPacket &packet) {
 }
 
 void Beeton::sendCommandFromUsb(String sendCommand) {
+    if(sendCommand.endsWith(",")){
+        sendUsb("ERROR: Invalid payload: empty field");
+        return;
+    }
   std::vector<String> parts = splitCsv(sendCommand);
   if(parts.size() < 4) {
     sendUsb("ERROR: Usage SEND,reliable,thing,id,action,payload[0],payload[1]...");
     return;
   }
 
-  bool reliable = parts[0].toInt();
-  uint16_t thing = parts[1].toInt();
-  uint8_t id = parts[2].toInt();
-  uint8_t actionId = parts[3].toInt();
-  std::vector<uint8_t> payload;
-  for(size_t i = 4; i < parts.size(); ++i) {
-    payload.push_back(parts[i].toInt());
+  uint32_t parsedReliable;
+  uint32_t parsedThing;
+  uint32_t parsedId;
+  uint32_t parsedAction;
+
+  if(!parseUnsignedField(parts[0], 1, parsedReliable)){
+      sendUsb("ERROR: Invalid reliable value '%s'; expected 0 or 1", parts[0].c_str());
+      return;
+  }
+  if(!parseUnsignedField(parts[1], UINT16_MAX, parsedThing)){
+          sendUsb("ERROR: Invalid thing value '%s'; expected 0..65535",parts[1].c_str());
+          return;
+  }
+  if(!parseUnsignedField(parts[2],UINT8_MAX,parsedId)){
+    sendUsb("ERROR: Invalid Id value '%s'; expected 0..255",parts[2].c_str());
+    return;
+  }
+  if(!parseUnsignedField(parts[3], UINT8_MAX, parsedAction)){
+      sendUsb("ERROR: Invalid action value '%s'; expected 0..255",parts[3].c_str());
+      return;
   }
 
-  send(reliable, thing, id, actionId, payload);
+  std::vector<uint8_t> payload;
+  for(size_t i = 4; i < parts.size(); ++i) {
+    uint32_t parsedByte;
+    if(!parseUnsignedField(parts[i], UINT8_MAX, parsedByte)){
+        sendUsb("ERROR: Invalid payload[%zu] value '%s'; expected 0..255",i-4, parts[i].c_str());
+        return;
+    }
+    payload.push_back(static_cast<uint8_t>(parsedByte));
+  }
+
+  send(
+          parsedReliable == 1, 
+          static_cast<uint16_t>(parsedThing), 
+          static_cast<uint8_t>(parsedId), 
+          static_cast<uint8_t>(parsedAction), 
+          payload
+          );
 }
 
 void Beeton::updateUsb() {
