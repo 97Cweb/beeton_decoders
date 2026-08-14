@@ -1,4 +1,7 @@
 #include "BeetonAudio.h"
+#include "HardwareSerial.h"
+#include <cstddef>
+#include <cstdint>
 
 BeetonAudio::BeetonAudio() {}
 
@@ -8,6 +11,10 @@ bool BeetonAudio::begin(const BeetonAudioConfig &cfg) {
 }
 
 bool BeetonAudio::_initI2S() {
+  if(_txChan != nullptr) {
+    Serial.println("BeetonAudio: audio output is already initialized");
+    return true;
+  }
   i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
   chan_cfg.auto_clear = true;
 
@@ -35,12 +42,16 @@ bool BeetonAudio::_initI2S() {
   err = i2s_channel_init_pdm_tx_mode(_txChan, &pdm_cfg);
   if(err != ESP_OK) {
     Serial.printf("i2s_channel_init_pdm_tx_mode failed: %d\n", (int)err);
+    i2s_del_channel(_txChan);
+    _txChan = nullptr;
     return false;
   }
 
   err = i2s_channel_enable(_txChan);
   if(err != ESP_OK) {
     Serial.printf("i2s_channel_enable failed: %d\n", (int)err);
+    i2s_del_channel(_txChan);
+    _txChan = nullptr;
     return false;
   }
 
@@ -65,19 +76,30 @@ void BeetonAudio::_closeFile() {
   }
   _playing = false;
   _loop = false;
+  _dataBytesRemaining = 0;
 }
 
 void BeetonAudio::stop() { _closeFile(); }
 
 bool BeetonAudio::_rewindFile() {
-  if(!_file) {
+  if(!_file || !_file.seek(_wav.dataStart)) {
     return false;
   }
-  return _file.seek(_wav.dataStart);
+  _dataBytesRemaining = _wav.dataSize;
+  return true;
 }
 
 bool BeetonAudio::play(const char *path, bool loop) {
   _closeFile();
+  if(_txChan == nullptr) {
+    Serial.println("BeetonAudio: audio output is not initialized");
+    return false;
+  }
+
+  if(path == nullptr || path[0] == '\0') {
+    Serial.println("BeetonAudio: invalid audio path");
+    return false;
+  }
   _file = SD.open(path, FILE_READ);
   if(!_file) {
     Serial.printf("BeetonAudio: failed to open %s\n", path);
@@ -95,6 +117,12 @@ bool BeetonAudio::play(const char *path, bool loop) {
     _closeFile();
     return false;
   }
+  if(_wav.sampleRate != _cfg.sampleRate) {
+    Serial.printf("BeetonAudio: unsupported sample rate %lu Hz; expected %lu Hz\n",
+                  (unsigned long)_wav.sampleRate, (unsigned long)_cfg.sampleRate);
+    _closeFile();
+    return false;
+  }
   if(_wav.bitsPerSample != 16) {
     Serial.println("BeetonAudio: only 16-bit WAV supported");
     _closeFile();
@@ -105,11 +133,34 @@ bool BeetonAudio::play(const char *path, bool loop) {
     _closeFile();
     return false;
   }
+
+  const uint16_t expectedBlockAlign = _wav.numChannels * (_wav.bitsPerSample / 8);
+  const uint64_t expectedByteRate = (uint64_t)_wav.sampleRate * expectedBlockAlign;
+
+  if(_wav.blockAlign != expectedBlockAlign || _wav.byteRate != expectedByteRate) {
+    Serial.println("BeetonAudio: inconsistent wav format header");
+    _closeFile();
+    return false;
+  }
+  if(_wav.dataSize == 0 || _wav.blockAlign == 0 || (_wav.dataSize % _wav.blockAlign) != 0) {
+    Serial.println("BeetonAudio: invalid WAV data size");
+    _closeFile();
+    return false;
+  }
+
+  const uint64_t dataEnd = (uint64_t)_wav.dataStart + _wav.dataSize;
+  if(dataEnd > _file.size()) {
+    Serial.println("BeetonAudio: truncated WAV data chunk");
+    _closeFile();
+    return false;
+  }
   if(!_file.seek(_wav.dataStart)) {
     Serial.println("BeetonAudio: failed to seek WAV data");
     _closeFile();
     return false;
   }
+
+  _dataBytesRemaining = _wav.dataSize;
 
   _loop = loop;
   _playing = true;
@@ -124,22 +175,28 @@ void BeetonAudio::update() {
   if(!_playing) { // not playing
     return;
   }
-  if(!_refillBuffer()) {   // buffer empty
-    if(_loop) {            // if looping
-      if(!_rewindFile()) { // but unable to restart
-        _closeFile();
-        return;
-      }
-      if(!_refillBuffer()) { // restarts, but cannot refill buffer
-        _closeFile();
-        return;
-      }
-    } else { // not looping
+  size_t frames_produced = _refillBuffer();
+
+  if(frames_produced == 0) { // buffer empty
+    if(!_loop) {             // if not looping
+      _closeFile();
+      return;
+    }
+    if(!_rewindFile()) {
+      Serial.println("BeetonAudio: failed to rewind wav");
+      _closeFile();
+      return;
+    }
+    frames_produced = _refillBuffer();
+
+    if(frames_produced == 0) {
+      Serial.println("BeetonAudio: failed to refill looped wav");
       _closeFile();
       return;
     }
   }
-  size_t bytesToWrite = sizeof(_outBuffer);
+
+  size_t bytesToWrite = frames_produced * 2 * sizeof(int16_t);
   size_t bytesWritten = 0;
 
   esp_err_t err = i2s_channel_write(_txChan, _outBuffer, bytesToWrite, &bytesWritten, 0);
@@ -151,18 +208,26 @@ void BeetonAudio::update() {
   }
 }
 
-bool BeetonAudio::_refillBuffer() {
-  if(!_file) {
-    return false;
+size_t BeetonAudio::_refillBuffer() {
+  if(!_file || _dataBytesRemaining == 0) {
+    return 0;
   }
-  const size_t bytesPerInputFrame = _wav.numChannels * sizeof(int16_t);
 
-  for(size_t i = 0; i < FRAMES_PER_CHUNK; i++) {
+  const size_t bytesPerInputFrame = _wav.blockAlign;
+
+  const size_t framesToRead =
+      min(FRAMES_PER_CHUNK, (size_t)(_dataBytesRemaining / bytesPerInputFrame));
+
+  size_t frames_produced = 0;
+
+  for(size_t i = 0; i < framesToRead; i++) {
     uint8_t raw[4] = {0, 0, 0, 0};
 
     int bytesRead = _file.read(raw, bytesPerInputFrame);
     if(bytesRead != (int)bytesPerInputFrame) {
-      return false;
+      Serial.println("BeetonAudio: read failed during wav playback");
+      _dataBytesRemaining = 0;
+      break;
     }
 
     int16_t left = 0;
@@ -207,15 +272,26 @@ bool BeetonAudio::_refillBuffer() {
 
     _outBuffer[2 * i + 0] = left;
     _outBuffer[2 * i + 1] = right;
+
+    frames_produced++;
+    _dataBytesRemaining -= bytesPerInputFrame;
   }
 
-  return true;
+  return frames_produced;
 }
 
 static bool readExact(File &file, void *dst, size_t len) {
   return file.read((uint8_t *)dst, len) == (int)len;
 }
+static bool seekForward(File &file, uint64_t byteCount) {
+  const uint64_t destination = (uint64_t)file.position() + byteCount;
 
+  if(destination > file.size()) {
+    return false;
+  }
+
+  return file.seek((uint32_t)destination);
+}
 bool BeetonAudio::_parseWavHeader(File &file, WavInfo &info) {
   info = WavInfo();
   char riff[4];
@@ -233,6 +309,12 @@ bool BeetonAudio::_parseWavHeader(File &file, WavInfo &info) {
     return false;
   if(memcmp(wave, "WAVE", 4) != 0)
     return false;
+
+  const uint64_t riffEnd = (uint64_t)riffSize + 8;
+
+  if(riffEnd < 12 || riffEnd > file.size()) {
+    return false;
+  }
 
   bool foundFmt = false;
   bool foundData = false;
@@ -257,19 +339,17 @@ bool BeetonAudio::_parseWavHeader(File &file, WavInfo &info) {
       if(!readExact(file, &info.sampleRate, 4))
         return false;
 
-      uint32_t byteRate;
-      uint16_t blockAlign;
-
-      if(!readExact(file, &byteRate, 4))
+      if(!readExact(file, &info.byteRate, 4))
         return false;
-      if(!readExact(file, &blockAlign, 2))
+      if(!readExact(file, &info.blockAlign, 2))
         return false;
       if(!readExact(file, &info.bitsPerSample, 2))
         return false;
 
-      if(chunkSize > 16) {
-        if(!file.seek(file.position() + (chunkSize - 16)))
-          return false;
+      const uint64_t remainingFmtBytes = (uint64_t)(chunkSize - 16) + (chunkSize & 1U);
+
+      if(!seekForward(file, remainingFmtBytes)) {
+        return false;
       }
 
       foundFmt = true;
@@ -277,12 +357,18 @@ bool BeetonAudio::_parseWavHeader(File &file, WavInfo &info) {
       info.dataStart = file.position();
       info.dataSize = chunkSize;
 
-      if(!file.seek(file.position() + chunkSize))
+      const uint64_t paddedChunkSize = (uint64_t)chunkSize + (chunkSize & 1U);
+
+      if(!seekForward(file, paddedChunkSize)) {
         return false;
+      }
       foundData = true;
     } else {
-      if(!file.seek(file.position() + chunkSize))
+      const uint64_t paddedChunkSize = (uint64_t)chunkSize + (chunkSize & 1U);
+
+      if(!seekForward(file, paddedChunkSize)) {
         return false;
+      }
     }
 
     if(foundFmt && foundData) {

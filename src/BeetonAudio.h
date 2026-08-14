@@ -1,43 +1,32 @@
 /*
- * TODO: Audio playback correctness
+ * TODO: Audio hardware verification
  *
- * Hardware testing is required before considering BeetonAudio complete.
+ * The WAV reader currently supports:
+ *   - Uncompressed PCM WAV files
+ *   - 16-bit mono or stereo samples
+ *   - Files matching BeetonAudioConfig::sampleRate
  *
- * 1. Sample-rate handling
- *    The I2S output runs at BeetonAudioConfig::sampleRate, but play()
- *    currently accepts WAV files with any sample rate.
+ * Unsupported or malformed files are rejected without starting playback.
  *
- *    Minimum fix:
- *      Reject files where _wav.sampleRate != _cfg.sampleRate.
+ * Before considering BeetonAudio hardware-verified:
+ *   - Confirm the installed amplifier/DAC model and that it is compatible
+ *     with the ESP32-C6 PDM TX output used here.
+ *   - Test mono and stereo playback.
+ *   - Test looping and manual stop.
+ *   - Test short clips and final partial buffers.
+ *   - Test truncated and malformed WAV files.
+ *   - Test volume limits.
  *
- *    Possible future fix:
- *      Resample WAV input to the configured output rate.
- *
- * 2. Respect the WAV data-chunk boundary
- *    Playback currently reads until File::read() fails. Track how many
- *    bytes remain in the WAV data chunk so trailing RIFF chunks are not
- *    interpreted as audio.
- *
- * 3. Handle the final partial buffer
- *    _refillBuffer() currently discards the final samples unless it can
- *    fill all FRAMES_PER_CHUNK frames.
- *
- *    It should return the number of frames produced. update() should write
- *    only those frames, then stop or loop after they have been written.
- *
- * 4. Validate WAV header consistency
- *    Validate blockAlign and byteRate against channels, bit depth, and
- *    sample rate. Account for RIFF chunk padding when chunkSize is odd.
- *
- * 5. Hardware verification
- *    Test mono, stereo, looping, stopping, volume limits, truncated files,
- *    short clips, and clips not divisible by FRAMES_PER_CHUNK.
+ * Resampling is not implemented. WAV files must match the configured
+ * output sample rate.
  */
 #pragma once
 
 #include <Arduino.h>
 #include <FS.h>
 #include <SD.h>
+#include <cstddef>
+#include <cstdint>
 
 extern "C" {
 #include "driver/i2s_common.h"
@@ -75,6 +64,8 @@ private:
     uint16_t bitsPerSample = 0;
     uint32_t dataStart = 0;
     uint32_t dataSize = 0;
+    uint32_t byteRate = 0;
+    uint16_t blockAlign = 0;
   };
 
   BeetonAudioConfig _cfg;
@@ -85,12 +76,14 @@ private:
   bool _playing = false;
   bool _loop = false;
 
+  uint32_t _dataBytesRemaining = 0;
+
   int16_t _outBuffer[FRAMES_PER_CHUNK * 2];
 
   bool _initI2S();
 
   bool _parseWavHeader(File &file, WavInfo &info);
-  bool _refillBuffer();
+  size_t _refillBuffer();
   void _closeFile();
   bool _rewindFile();
 };
