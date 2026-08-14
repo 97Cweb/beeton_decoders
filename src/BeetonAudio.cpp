@@ -6,15 +6,15 @@
 BeetonAudio::BeetonAudio() {}
 
 bool BeetonAudio::begin(const BeetonAudioConfig &cfg) {
+  if(_txChan != nullptr) {
+    Serial.println("BeetonAudio: audio output already initialized");
+    return false;
+  }
   _cfg = cfg;
   return _initI2S();
 }
 
 bool BeetonAudio::_initI2S() {
-  if(_txChan != nullptr) {
-    Serial.println("BeetonAudio: audio output is already initialized");
-    return true;
-  }
   i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
   chan_cfg.auto_clear = true;
 
@@ -319,7 +319,7 @@ bool BeetonAudio::_parseWavHeader(File &file, WavInfo &info) {
   bool foundFmt = false;
   bool foundData = false;
 
-  while(file.available()) {
+  while((uint64_t)file.position() + 8 <= riffEnd) {
     char chunkId[4];
     uint32_t chunkSize = 0;
 
@@ -369,6 +369,10 @@ bool BeetonAudio::_parseWavHeader(File &file, WavInfo &info) {
       if(!seekForward(file, paddedChunkSize)) {
         return false;
       }
+    }
+
+    if((uint64_t)file.position() > riffEnd) {
+      return false;
     }
 
     if(foundFmt && foundData) {
