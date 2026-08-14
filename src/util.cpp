@@ -1,5 +1,9 @@
 #include "Beeton.h"
+#include "BeetonConfig.h"
+#include "esp32-hal-adc.h"
 #include <IPAddress.h>
+#include <cstddef>
+#include <cstdint>
 #include <esp_random.h>
 #include <vector>
 
@@ -36,19 +40,45 @@ void Beeton::logBeeton(BeetonLogLevel level, const char *fmt, ...) {
 std::vector<String> Beeton::splitCsv(const String &input) {
   std::vector<String> result;
   int start = 0;
-  int end = 0;
 
-  while((end = input.indexOf(',', start)) != -1) {
+  while(true) {
+    const int end = input.indexOf(',', start);
+
+    if(end == -1) {
+      result.push_back(input.substring(start));
+      break;
+    }
     result.push_back(input.substring(start, end));
     start = end + 1;
   }
+  return result;
+}
 
-  // Add the final part
-  if(start < input.length()) {
-    result.push_back(input.substring(start));
+bool Beeton::parseUnsignedField(const String &field, uint32_t maximum, uint32_t &result) {
+  String value = field;
+  value.trim();
+
+  if(value.length() == 0) {
+    return false;
   }
 
-  return result;
+  uint32_t parsed = 0;
+
+  for(size_t i = 0; i < value.length(); ++i) {
+    const char c = value[i];
+
+    if(c < '0' || c > '9') {
+      return false;
+    }
+    const uint32_t digit = static_cast<uint32_t>(c - '0');
+
+    if(parsed > maximum / 10 || (parsed == maximum / 10 && digit > maximum % 10)) {
+      return false;
+    }
+    parsed = parsed * 10 + digit;
+  }
+  result = parsed;
+  return true;
 }
 
 String Beeton::formatPayload(const std::vector<uint8_t> &payload) {

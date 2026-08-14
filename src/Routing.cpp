@@ -18,7 +18,32 @@ void registerThingOwner(uint16_t thing, uint8_t id, const String &ip) {
   thingIdToIp[makeThingIdKey(thing, id)] = ip;
 }
 
-// main thing to edit, how do things get into the table?
+/*
+ * TODO: Replace announcement-only routing ownership
+ *
+ * The routing API is intentionally isolated in this file so the source of
+ * routing information can be replaced without changing Beeton packet
+ * handling.
+ *
+ * Currently, joiners populate a volatile (thing, id) -> IP table using
+ * BEETON_LEADER_ACTION_ANNOUNCE.
+ *
+ * A future leader implementation should populate this table from the
+ * authoritative device/thing assignment source, while preserving:
+ *
+ *   routingFindDestination()
+ *   routingHandleLeaderPacket()
+ *   routingGetKnownDestinations()
+ *
+ * The replacement should define:
+ *   - how leader-local things are registered;
+ *   - how ownership conflicts are resolved and reported;
+ *   - how stale routes are expired or removed;
+ *   - how address changes and device reassignment are handled;
+ *   - whether routes survive a leader restart;
+ *   - whether announcements are accepted directly or validated against
+ *     configured assignments.
+ */
 bool handleAnnouncement(const BeetonPacket &packet) {
   if(packet.payload.size() % 3 != 0) {
     return true;

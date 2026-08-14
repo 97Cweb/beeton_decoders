@@ -7,31 +7,6 @@
 #include <cstdint>
 #include <sys/types.h>
 
-namespace {
-bool parseUnsignedField(String value, uint32_t maximum, uint32_t &result) {
-  value.trim();
-  if(value.length() == 0) {
-    return false;
-  }
-  uint32_t parsed = 0;
-
-  for(size_t i = 0; i < value.length(); ++i) {
-    const char c = value[i];
-
-    if(c < '0' || c > '9') {
-      return false;
-    }
-    const uint32_t digit = static_cast<uint32_t>(c - '0');
-
-    if(parsed > (maximum - digit) / 10 || (parsed == maximum / 10 && digit > maximum % 10)) {
-      return false;
-    }
-    parsed = parsed * 10 + digit;
-  }
-  result = parsed;
-  return true;
-}
-} // namespace
 void Beeton::sendAllKnownThingsToUsb() {
   if(!lightThread) {
     return;
@@ -84,10 +59,6 @@ void Beeton::sendRemoteSerialPacket(const BeetonPacket &packet) {
 }
 
 void Beeton::sendCommandFromUsb(String sendCommand) {
-  if(sendCommand.endsWith(",")) {
-    sendUsb("ERROR: Invalid payload: empty field");
-    return;
-  }
   std::vector<String> parts = splitCsv(sendCommand);
   if(parts.size() < 4) {
     sendUsb("ERROR: Usage SEND,reliable,thing,id,action,payload[0],payload[1]...");

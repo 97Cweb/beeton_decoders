@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include <LightThread.h>
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <vector>
@@ -126,6 +127,7 @@ private:
 
   void logBeeton(BeetonLogLevel level, const char *fmt, ...);
   std::vector<String> splitCsv(const String &input);
+  bool parseUnsignedField(const String &field, uint32_t maximum, uint32_t &result);
   String formatPayload(const std::vector<uint8_t> &payload);
 
   // --- IPv6 origin helpers ---
