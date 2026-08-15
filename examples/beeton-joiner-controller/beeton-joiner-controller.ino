@@ -87,11 +87,11 @@ void loop() {
       oldButtonState = buttonState;
 
       int newKnobPos =  analogRead(GPIO_NUM_0); 
-      newKnobPos = map(newKnobPos,0,206,0,255);
+      newKnobPos = map(newKnobPos,0,206,-128,127);
       if(abs(newKnobPos-oldKnobPos) > 10){
         Serial.printf("knobpos: %d\n",newKnobPos);
         oldKnobPos = newKnobPos;
-        beeton.send(false,trainThing,1,setSpeedAction,(uint8_t) newKnobPos);
+        beeton.send(false,trainThing,1,setSpeedAction,(int8_t) newKnobPos);
       }
     }
     delay(10);

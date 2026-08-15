@@ -28,6 +28,37 @@ struct BeetonThing {
   uint8_t id;
 };
 
+class BeetonPayload{
+  public:
+    bool hasValue() const;
+    bool hasBytes() const;
+
+    int64_t getValue(int64_t fallback=0) const;
+    const std::vector<uint8_t> &getBytes() const;
+
+  private:
+    friend class Beeton;
+
+    enum class Type: uint8_t{
+      NONE = 0x00,
+      BOOL = 0x01,
+
+      UINT8 = 0x10,
+      UINT16 = 0x11,
+      UINT32 = 0x12,
+
+      INT8 = 0x20,
+      INT16 = 0x21,
+      INT32 = 0x22,
+
+      BYTES = 0xF0
+    };
+
+    Type type = Type::NONE;
+    int64_t value = 0;
+    std::vector<uint8_t> bytes;
+};
+
 class Beeton {
 public:
   void begin(LightThread &lt);
@@ -38,14 +69,26 @@ public:
   bool goDormant();
 
   // Simple send API
+  // No payload
   bool send(bool reliable, uint16_t thing, uint8_t id, uint8_t action);
-  bool send(bool reliable, uint16_t thing, uint8_t id, uint8_t action, uint8_t payloadByte);
+
+  // Scalar payloads
+  bool send(bool reliable, uint16_t thing, uint8_t id, uint8_t action, bool value);
+
+  bool send(bool reliable, uint16_t thing, uint8_t id, uint8_t action, uint8_t value);
+  bool send(bool reliable, uint16_t thing, uint8_t id, uint8_t action, uint16_t value);
+  bool send(bool reliable, uint16_t thing, uint8_t id, uint8_t action, uint32_t value);
+
+  bool send(bool reliable, uint16_t thing, uint8_t id, uint8_t action, int8_t value);
+  bool send(bool reliable, uint16_t thing, uint8_t id, uint8_t action, int16_t value);
+  bool send(bool reliable, uint16_t thing, uint8_t id, uint8_t action, int32_t value);
+
+  // Raw byte-array payload
   bool send(bool reliable, uint16_t thing, uint8_t id, uint8_t action,
-            const std::vector<uint8_t> &payload);
+            const std::vector<uint8_t> &bytes);
 
   // Message receive handler
-  using MessageCallback = std::function<void(uint16_t thing, uint8_t id, uint8_t action,
-                                             const std::vector<uint8_t> &payload)>;
+  using MessageCallback = std::function<void(uint16_t thing, uint8_t id, uint8_t action,const BeetonPayload &payload)>;
   void onMessage(MessageCallback cb) { messageCallback = std::move(cb); }
 
   // === Reliability Callbacks ===
@@ -147,6 +190,11 @@ private:
   std::vector<String> splitCsv(const String &input);
   bool parseUnsignedField(const String &field, uint32_t maximum, uint32_t &result);
   String formatPayload(const std::vector<uint8_t> &payload);
+
+  std::vector<uint8_t> encodeValuePayload(uint8_t type, uint64_t value,
+                                          uint8_t width);
+  bool decodePayload(const std::vector<uint8_t> &encoded,
+                     BeetonPayload &decoded);
 
   // --- IPv6 origin helpers ---
   std::vector<uint8_t> parseIpv6(const String &ip);

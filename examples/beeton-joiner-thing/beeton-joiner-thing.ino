@@ -20,22 +20,25 @@ void setup() {
     beeton.begin(lightThread);
 
     // Handle only user-defined actions
-    beeton.onMessage([](uint16_t thingId, uint8_t id, uint8_t actionId, const std::vector<uint8_t>& payload) {
+    beeton.onMessage([](uint16_t thingId, uint8_t id, uint8_t actionId, const BeetonPayload& payload) {
         String thing = beeton.getThingName(thingId);
         String action = beeton.getActionName(thing, actionId);
         if (thing == "train"){
-          if (action == "setspeed" && payload.size() == 1) {
-            int speed = payload[0]*2 - 255;
-            Serial.println(speed);
-            if(speed >=0){
-              ledcWrite(IN1, speed);
-              ledcWrite(IN2, 0);
+          if (action == "setspeed"){
+            if(payload.hasValue()){
+              auto speed = payload.getValue();
+
+              Serial.println(speed);
+              if(speed >=0){
+                ledcWrite(IN1, speed);
+                ledcWrite(IN2, 0);
+              }
+              else{
+                ledcWrite(IN1,0);
+                ledcWrite(IN2, abs(speed));
+              }
             }
-            else{
-              ledcWrite(IN1,0);
-              ledcWrite(IN2, abs(speed));
-            }
-          } 
+          }
           if (action == "coast"){
             Serial.println("coasting");
             ledcWrite(IN1, 0);

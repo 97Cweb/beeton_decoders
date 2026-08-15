@@ -78,23 +78,6 @@ bool Beeton::goDormant() {
   return lightThread->goDormant();
 }
 
-// Overload for sending a message without payload
-bool Beeton::send(bool reliable, uint16_t thing, uint8_t id, uint8_t action) {
-  std::vector<uint8_t> payload;
-  return send(reliable, thing, id, action, payload);
-}
-
-// Overload for sending a message with a single byte payload
-bool Beeton::send(bool reliable, uint16_t thing, uint8_t id, uint8_t action, uint8_t payloadByte) {
-  std::vector<uint8_t> payload = {payloadByte};
-  return send(reliable, thing, id, action, payload);
-}
-
-// Send message to a known (thing, id) destination, if its IP is known
-bool Beeton::send(bool reliable, uint16_t thing, uint8_t id, uint8_t action,
-                  const std::vector<uint8_t> &payload) {
-  return Beeton::sendPacket(reliable, thing, id, action, payload, true);
-}
 
 bool Beeton::sendPacket(bool reliable, uint16_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t> &payload, bool requireNetworkReady){
   
@@ -386,9 +369,19 @@ bool Beeton::forwardPacketIfLeader(const std::vector<uint8_t> &raw, const Beeton
 }
 
 void Beeton::dispatchLocalPacket(const BeetonPacket &packet) {
-  if(messageCallback) {
-    messageCallback(packet.thing, packet.id, packet.action, packet.payload);
+  if(!messageCallback){
+    return;
   }
+  
+  BeetonPayload payload;
+
+  if(!decodePayload(packet.payload, payload)){
+    logBeeton(BEETON_LOG_WARN, "Rejected malformed payload thing= %04x id=%u action=%u len=%zu", packet.thing, packet.id, packet.action,packet.payload.size());
+    return;
+  }
+
+
+  messageCallback(packet.thing, packet.id, packet.action, payload);
 }
 
 bool Beeton::isReady() { 
