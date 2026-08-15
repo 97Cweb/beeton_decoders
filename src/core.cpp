@@ -1,6 +1,7 @@
 #include "Beeton.h"
 #include "BeetonConfig.h"
-#include "Routing.h"
+#include "LightThread.h"
+#include "LightThreadTypes.h"
 #include <cstdint>
 // Initialize Beeton and register callbacks with LightThread
 void Beeton::begin(LightThread &lt) {
@@ -46,31 +47,20 @@ void Beeton::begin(LightThread &lt) {
     if(lightThread->getRole() != Role::JOINER)
       return;
 
-    setNetworkReady(false);
-
-    // Package all local things into a WHO_AM_I announcement
-    std::vector<uint8_t> payload;
-    for(const auto &entry : localThings) {
-      logBeeton(BEETON_LOG_INFO, "Joiner adding thing id: %04X:%d", entry.thing, entry.id);
-      appendUint16(payload, entry.thing);
-      payload.push_back(entry.id);
-    }
-
-    const bool sent = sendPacket(true, BEETON_LEADER_THING, BEETON_LEADER_ID, BEETON_LEADER_ACTION_ANNOUNCE, payload,false);
-    if(sent){
-      logBeeton(BEETON_LOG_INFO, "Joiner Sent WHO_AM_I automatically");
-    }
-    else{
-    logBeeton(BEETON_LOG_WARN, "Joiner could not send WHO_AM_I");
-    }
+    routingHandleJoin();
   });
   isSetup = true;
+  routingBegin();
 }
 
 // Forward update call to LightThread instance
 void Beeton::update() {
-  if(lightThread)
+  if(lightThread){
     lightThread->update();
+  }
+
+
+  routingUpdate();
 
   if(lightThread && lightThread->getRole() == Role::LEADER) {
     updateUsb();
@@ -269,6 +259,14 @@ void Beeton::handlePacket(const std::vector<uint8_t> &raw, const BeetonPacket &p
     logBeeton(BEETON_LOG_DEBUG, "Ignored data packet while Beeton network is not ready");
     return;
   }
+
+  if(lightThread && lightThread->getRole() == Role::LEADER && routingIsLocalDestination(packet.thing, packet.id)){
+    if(handleReliablePacket(packet)){
+      return;
+    }
+    dispatchLocalPacket(packet);
+    return;
+  }
   // leader is router for things not itself. Forward unconditionally, no ack
   if(lightThread && lightThread->getRole() == Role::LEADER) {
     forwardPacketIfLeader(raw, packet);
@@ -312,6 +310,9 @@ bool Beeton::handleAckPacket(const BeetonPacket &packet) {
 
   logBeeton(BEETON_LOG_INFO, "ACK received seq=%u thing %04X id=%u action=%u", packet.seq,
             packet.thing, packet.id, packet.action);
+  
+  routingHandleAck(completed.thing, completed.id, completed.action, completed.seq);
+
   if(ackSuccessCb) {
     ackSuccessCb(completed.thing, completed.id, completed.action, completed.seq);
   }
@@ -349,18 +350,16 @@ bool Beeton::handleLeaderControlPacket(const BeetonPacket &packet) {
     return true;
   }
 
-  switch(packet.action) {
-  case BEETON_LEADER_ACTION_SERIAL:
+  if(packet.action == BEETON_LEADER_ACTION_SERIAL){
     sendRemoteSerialPacket(packet);
     return true;
+  }
 
-  default:
-    if(routingHandleLeaderPacket(packet)){
-      return true;
-    }
-    logBeeton(BEETON_LOG_WARN, "Ignored unknown reserved leader action %u",packet.action);
+  if(routingHandleLeaderPacket(packet)){
     return true;
   }
+  logBeeton(BEETON_LOG_WARN, "Ignored unknown reserved leader action %u", packet.action);
+  return true;
 }
 
 bool Beeton::forwardPacketIfLeader(const std::vector<uint8_t> &raw, const BeetonPacket &packet) {

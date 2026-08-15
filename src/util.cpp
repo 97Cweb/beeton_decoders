@@ -1,6 +1,5 @@
 #include "Beeton.h"
 #include "BeetonConfig.h"
-#include "esp32-hal-adc.h"
 #include <IPAddress.h>
 #include <cstddef>
 #include <cstdint>
@@ -166,6 +165,7 @@ void Beeton::pumpReliable() {
       continue;
 
     if(p.retriesLeft == 0) {
+      routingHandleAckFailure(p.thing, p.id, p.action, p.seq);
       if(ackFailCb)
         ackFailCb(p.thing, p.id, p.action, p.seq);
       done.push_back(kv.first);

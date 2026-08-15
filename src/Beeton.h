@@ -72,6 +72,20 @@ private:
   std::map<String, std::map<String, uint8_t>> actionNameToId;
   std::map<String, std::map<uint8_t, String>> actionIdToName;
 
+
+  // --- Routing integration ---
+  void routingBegin();
+  void routingUpdate();
+  void routingHandleJoin();
+  void routingHandleAck(uint16_t thing, uint8_t id, uint8_t action, uint16_t seq);
+
+  bool routingHandleLeaderPacket(const BeetonPacket &packet);
+  bool routingFindDestination(uint16_t thing, uint8_t id, String &outIp);
+  bool routingIsLocalDestination(uint16_t thing, uint8_t id);
+  void routingHandleAckFailure(uint16_t thing, uint8_t id, uint8_t action, std::uint16_t seq);
+
+  const std::map<uint32_t, String> &routingGetKnownDestinations();
+
   void loadMappings(const char *thingsPath = "/beeton/all_things.csv",
                     const char *actionsPath = "/beeton/all_actions.csv",
                     const char *definePath = "/beeton/define_this.csv");
