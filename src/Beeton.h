@@ -33,6 +33,8 @@ public:
   void begin(LightThread &lt);
   void update();
   bool isReady();
+  bool isNetworkReady() const;
+  void setNetworkReady(bool ready = true);
   bool goDormant();
 
   // Simple send API
@@ -79,6 +81,7 @@ private:
   void loadDefines(const char *path);
 
   bool isSetup = false;
+  bool networkReady = false;
 
   // --- Reliability state ---
   struct Pending {
@@ -106,6 +109,7 @@ private:
 
   void defineThings(const std::vector<BeetonThing> &list);
 
+  bool sendPacket(bool reliable, uint16_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>&payload,bool requireNetworkReady);
   void sendAllKnownThingsToUsb();
   void sendFileOverUsb(String filename);
   void sendUsb(const char *fmt, ...);

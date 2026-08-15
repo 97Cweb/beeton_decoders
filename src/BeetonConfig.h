@@ -8,7 +8,8 @@ static constexpr size_t BEETON_HEADER_SIZE = 24;
 
 constexpr uint8_t BEETON_PROTOCOL_VERSION = 1;
 
-// Leader/control address
+// reserved Beeton control address
+// applications hosted on leader must use another thing/id
 static constexpr uint16_t BEETON_LEADER_THING = 0xFFFF;
 static constexpr uint8_t BEETON_LEADER_ID = 0xFF;
 constexpr uint8_t BEETON_LEADER_ACTION_SERIAL = 0xFE;
