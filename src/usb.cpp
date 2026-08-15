@@ -54,7 +54,13 @@ void Beeton::sendUsb(const char *fmt, ...) {
 }
 
 void Beeton::sendRemoteSerialPacket(const BeetonPacket &packet) {
-  sendUsb("REMOTE,%s,%s", packet.originIp.c_str(), formatPayload(packet.payload).c_str());
+  BeetonPayload payload;
+
+  if(!decodePayload(packet.payload, payload) || !payload.hasBytes()){
+    sendUsb("ERROR: Remote serail action requires a byte array payload");
+    return;
+  }
+  sendUsb("REMOTE,%s,%s", packet.originIp.c_str(), formatPayload(payload.getBytes()).c_str());
 }
 
 void Beeton::sendCommandFromUsb(String sendCommand) {

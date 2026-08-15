@@ -1,9 +1,7 @@
-#include "Arduino.h"
 #include "Beeton.h"
 
 #include <cstddef>
 #include <cstdint>
-#include <sys/types.h>
 #include <vector>
 
 bool BeetonPayload::hasValue() const{

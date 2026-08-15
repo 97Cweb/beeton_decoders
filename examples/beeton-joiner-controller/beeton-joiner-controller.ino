@@ -62,7 +62,7 @@ void loop() {
       return;
     }
 
-    if(lightThread.isReady()){
+    if(beeton.isReady()){
       
       bool buttonState = !digitalRead(GPIO_NUM_14);
       if(oldButtonState == false && buttonState == true){
