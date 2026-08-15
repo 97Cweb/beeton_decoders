@@ -1,8 +1,12 @@
 #include "Beeton.h"
-#include "Routing.h"
+#include "BeetonConfig.h"
+#include "LightThread.h"
+#include "LightThreadTypes.h"
+#include <cstdint>
 // Initialize Beeton and register callbacks with LightThread
 void Beeton::begin(LightThread &lt) {
   lightThread = &lt;
+  networkReady = false;
 
   // Load name→ID mappings from SD card
   loadMappings();
@@ -43,24 +47,20 @@ void Beeton::begin(LightThread &lt) {
     if(lightThread->getRole() != Role::JOINER)
       return;
 
-    // Package all local things into a WHO_AM_I announcement
-    std::vector<uint8_t> payload;
-    for(const auto &entry : localThings) {
-      logBeeton(BEETON_LOG_INFO, "Joiner adding thing id: %04X:%d", entry.thing, entry.id);
-      appendUint16(payload, entry.thing);
-      payload.push_back(entry.id);
-    }
-
-    this->send(true, BEETON_LEADER_THING, BEETON_LEADER_ID, BEETON_LEADER_ACTION_ANNOUNCE, payload);
-    logBeeton(BEETON_LOG_INFO, "Joiner Sent WHO_AM_I automatically");
+    routingHandleJoin();
   });
   isSetup = true;
+  routingBegin();
 }
 
 // Forward update call to LightThread instance
 void Beeton::update() {
-  if(lightThread)
+  if(lightThread){
     lightThread->update();
+  }
+
+
+  routingUpdate();
 
   if(lightThread && lightThread->getRole() == Role::LEADER) {
     updateUsb();
@@ -70,7 +70,7 @@ void Beeton::update() {
 
 bool Beeton::goDormant() {
   if(!isReady()) {
-    logBeeton(BEETON_LOG_ERROR, "goDormant() called before Beeton::begin()");
+    logBeeton(BEETON_LOG_ERROR, "goDormant() called before Beeton network is ready");
 
     return false;
   }
@@ -78,25 +78,20 @@ bool Beeton::goDormant() {
   return lightThread->goDormant();
 }
 
-// Overload for sending a message without payload
-bool Beeton::send(bool reliable, uint16_t thing, uint8_t id, uint8_t action) {
-  std::vector<uint8_t> payload;
-  return send(reliable, thing, id, action, payload);
-}
 
-// Overload for sending a message with a single byte payload
-bool Beeton::send(bool reliable, uint16_t thing, uint8_t id, uint8_t action, uint8_t payloadByte) {
-  std::vector<uint8_t> payload = {payloadByte};
-  return send(reliable, thing, id, action, payload);
-}
-
-// Send message to a known (thing, id) destination, if its IP is known
-bool Beeton::send(bool reliable, uint16_t thing, uint8_t id, uint8_t action,
-                  const std::vector<uint8_t> &payload) {
+bool Beeton::sendPacket(bool reliable, uint16_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t> &payload, bool requireNetworkReady){
+  
   uint8_t flags = 0;
   uint16_t seq = 0;
 
-  if(!isReady()) {
+  if(!lightThread || !isSetup || !lightThread->isReady()) {
+    logBeeton(BEETON_LOG_WARN, "Beeton: Transport is not ready; send blocked");
+    return false;
+  }
+
+
+  if(requireNetworkReady && !networkReady) {
+    logBeeton(BEETON_LOG_WARN, "Beeton: Network is not ready; send blocked");
     return false;
   }
 
@@ -235,8 +230,28 @@ void Beeton::handlePacket(const std::vector<uint8_t> &raw, const BeetonPacket &p
     return;
   }
 
+  if(isLeaderAddress(packet)){
+    if(handleReliablePacket(packet)){
+      return;
+    }
+    handleLeaderControlPacket(packet);
+    return;
+  }
+
+  if(!isReady()){
+    logBeeton(BEETON_LOG_DEBUG, "Ignored data packet while Beeton network is not ready");
+    return;
+  }
+
+  if(lightThread && lightThread->getRole() == Role::LEADER && routingIsLocalDestination(packet.thing, packet.id)){
+    if(handleReliablePacket(packet)){
+      return;
+    }
+    dispatchLocalPacket(packet);
+    return;
+  }
   // leader is router for things not itself. Forward unconditionally, no ack
-  if(lightThread && lightThread->getRole() == Role::LEADER && !isLeaderAddress(packet)) {
+  if(lightThread && lightThread->getRole() == Role::LEADER) {
     forwardPacketIfLeader(raw, packet);
     return;
   }
@@ -246,9 +261,6 @@ void Beeton::handlePacket(const std::vector<uint8_t> &raw, const BeetonPacket &p
     return;
   }
 
-  if(handleLeaderControlPacket(packet)) {
-    return;
-  }
 
   dispatchLocalPacket(packet);
 }
@@ -281,6 +293,9 @@ bool Beeton::handleAckPacket(const BeetonPacket &packet) {
 
   logBeeton(BEETON_LOG_INFO, "ACK received seq=%u thing %04X id=%u action=%u", packet.seq,
             packet.thing, packet.id, packet.action);
+  
+  routingHandleAck(completed.thing, completed.id, completed.action, completed.seq);
+
   if(ackSuccessCb) {
     ackSuccessCb(completed.thing, completed.id, completed.action, completed.seq);
   }
@@ -315,19 +330,19 @@ bool Beeton::handleLeaderControlPacket(const BeetonPacket &packet) {
 
   // These internal behaviours only exist on the leader.
   if(!lightThread || lightThread->getRole() != Role::LEADER) {
-    return false;
+    return true;
   }
 
-  switch(packet.action) {
-  case BEETON_LEADER_ACTION_SERIAL:
+  if(packet.action == BEETON_LEADER_ACTION_SERIAL){
     sendRemoteSerialPacket(packet);
     return true;
-
-  default:
-    // Ordinary user-defined leader action.
-    // Allow dispatchLocalPacket() to receive it.
-    return routingHandleLeaderPacket(packet);
   }
+
+  if(routingHandleLeaderPacket(packet)){
+    return true;
+  }
+  logBeeton(BEETON_LOG_WARN, "Ignored unknown reserved leader action %u", packet.action);
+  return true;
 }
 
 bool Beeton::forwardPacketIfLeader(const std::vector<uint8_t> &raw, const BeetonPacket &packet) {
@@ -354,9 +369,36 @@ bool Beeton::forwardPacketIfLeader(const std::vector<uint8_t> &raw, const Beeton
 }
 
 void Beeton::dispatchLocalPacket(const BeetonPacket &packet) {
-  if(messageCallback) {
-    messageCallback(packet.thing, packet.id, packet.action, packet.payload);
+  if(!messageCallback){
+    return;
   }
+  
+  BeetonPayload payload;
+
+  if(!decodePayload(packet.payload, payload)){
+    logBeeton(BEETON_LOG_WARN, "Rejected malformed payload thing= %04x id=%u action=%u len=%zu", packet.thing, packet.id, packet.action,packet.payload.size());
+    return;
+  }
+
+
+  messageCallback(packet.thing, packet.id, packet.action, payload);
 }
 
-bool Beeton::isReady() { return lightThread && isSetup && lightThread->isReady(); }
+bool Beeton::isReady() { 
+  return lightThread && 
+    isSetup && 
+    lightThread->isReady() &&
+    networkReady; 
+}
+
+bool Beeton::isNetworkReady() const {
+  return networkReady;
+}
+
+void Beeton::setNetworkReady(bool ready){
+  if(networkReady == ready){
+    return;
+  }
+  networkReady = ready;
+  logBeeton(BEETON_LOG_INFO, "Beeton network marked %s", ready ? "ready": "not ready");
+}

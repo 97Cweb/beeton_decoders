@@ -9,7 +9,7 @@ void setup() {
     lightThread.begin();
     beeton.begin(lightThread);
 
-    beeton.onMessage([](uint16_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>& payload) {
+    beeton.onMessage([](uint16_t thing, uint8_t id, uint8_t action, const BeetonPayload &payload) {
         Serial.printf("update from %04X:%d received, action %02X occurred\n",thing, id, action);    });
 }
 
