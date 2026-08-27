@@ -1,5 +1,6 @@
 #include "Beeton.h"
 #include "BeetonConfig.h"
+#include "BeetonRouting.h"
 #include "LightThread.h"
 #include "LightThreadTypes.h"
 #include "esp32-hal.h"
@@ -219,27 +220,26 @@ void Beeton::handlePacket(const std::vector<uint8_t> &raw, const BeetonPacket &p
     logBeeton(BEETON_LOG_DEBUG, "Ignored data packet while Beeton network is not ready");
     return;
   }
+  
+  String nextHopIp;
 
-  if(lightThread && lightThread->getRole() == Role::LEADER && routingIsLocalDestination(packet.thing, packet.id)){
-    if(handleReliablePacket(packet)){
+  const RoutingDisposition disposition = routingClassifyPacket(packet, nextHopIp);
+
+  switch(disposition){
+    case RoutingDisposition::LOCAL:
+      if(handleReliablePacket(packet)){
+        return;
+      }
+      dispatchLocalPacket(packet);
       return;
-    }
-    dispatchLocalPacket(packet);
-    return;
-  }
-  // leader is router for things not itself. Forward unconditionally, no ack
-  if(lightThread && lightThread->getRole() == Role::LEADER) {
-    forwardPacketIfLeader(raw, packet);
-    return;
-  }
+    case RoutingDisposition::FORWARD:
+      logBeeton(BEETON_LOG_INFO, "Forwarding thing=%04X id=%u action=%u to %s", packet.thing, packet.id, packet.action, nextHopIp.c_str());
 
-  // final destination, do your own duplicate detection
-  if(handleReliablePacket(packet)) {
-    return;
+      lightThread->sendUdp(nextHopIp, raw);
+      return;
+    case RoutingDisposition::DROP:
+      return;
   }
-
-
-  dispatchLocalPacket(packet);
 }
 
 bool Beeton::handleAckPacket(const BeetonPacket &packet) {
@@ -319,28 +319,6 @@ bool Beeton::handleLeaderControlPacket(const BeetonPacket &packet) {
   return true;
 }
 
-bool Beeton::forwardPacketIfLeader(const std::vector<uint8_t> &raw, const BeetonPacket &packet) {
-  if(!isReady() || lightThread->getRole() != Role::LEADER) {
-    return false;
-  }
-
-  if(isLeaderAddress(packet)) {
-    return false;
-  }
-
-  String destIp;
-
-  if(!routingFindDestination(packet.thing, packet.id, destIp)) {
-    logBeeton(BEETON_LOG_WARN, "Leader has no destination for thing=%04X id=%u", packet.thing,
-              packet.id);
-    return false;
-  }
-
-  logBeeton(BEETON_LOG_INFO, "Leader forwarding thing=%04X id=%u action=%u to %s", packet.thing,
-            packet.id, packet.action, destIp.c_str());
-
-  return lightThread->sendUdp(destIp, raw);
-}
 
 void Beeton::dispatchLocalPacket(const BeetonPacket &packet) {
   if(!messageCallback){

@@ -130,6 +130,10 @@ private:
   bool routingIsLocalDestination(uint16_t thing, uint8_t id);
   void routingHandleAckFailure(uint16_t thing, uint8_t id, uint8_t action, std::uint16_t seq);
 
+  RoutingDisposition routingClassifyPacket(
+      const BeetonPacket &packet, String& outNextHopIp
+      );
+
   const std::map<uint32_t, String> &routingGetKnownDestinations();
 
   void loadMappings(const char *thingsPath = "/beeton/all_things.csv",
@@ -188,7 +192,6 @@ private:
   bool handleAckPacket(const BeetonPacket &packet);
   bool handleReliablePacket(const BeetonPacket &packet);
   bool handleLeaderControlPacket(const BeetonPacket &packet);
-  bool forwardPacketIfLeader(const std::vector<uint8_t> &raw, const BeetonPacket &packet);
   void dispatchLocalPacket(const BeetonPacket &packet);
 
   void logBeeton(BeetonLogLevel level, const char *fmt, ...);

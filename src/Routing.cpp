@@ -230,3 +230,25 @@ bool Beeton::routingIsLocalDestination(uint16_t thing, uint8_t id){
 }
 
 const std::map<uint32_t, String> & Beeton::routingGetKnownDestinations() { return thingIdToIp; }
+
+RoutingDisposition Beeton::routingClassifyPacket(const BeetonPacket &packet, String &outNextHopIp){
+  if(!lightThread){
+    return RoutingDisposition::DROP;
+  }
+  if(lightThread->getRole() == Role::JOINER){
+    return RoutingDisposition::LOCAL;
+  }
+  if(lightThread->getRole()!= Role::LEADER){
+    return RoutingDisposition::DROP;
+  }
+  if(routingIsLocalDestination(packet.thing, packet.id)){
+    return RoutingDisposition::LOCAL;
+  }
+
+  if(!routingFindDestination(packet.thing, packet.id, outNextHopIp)){
+    logBeeton(BEETON_LOG_WARN, "Leader has no destination for thing %04X id=%u", packet.thing, packet.id);
+
+    return RoutingDisposition::DROP;
+  }
+  return RoutingDisposition::FORWARD;
+}
