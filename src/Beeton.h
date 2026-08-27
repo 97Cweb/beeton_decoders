@@ -8,6 +8,7 @@
 #include <map>
 #include <vector>
 
+#include "BeetonRouting.h"
 #include "BeetonConfig.h"
 
 enum BeetonLogLevel { BEETON_LOG_DEBUG, BEETON_LOG_INFO, BEETON_LOG_WARN, BEETON_LOG_ERROR };
@@ -119,10 +120,11 @@ private:
   // --- Routing integration ---
   void routingBegin();
   void routingUpdate();
-  void routingHandleJoin();
+  void routingOnLightThreadReady();
+  void routingOnLightThreadLost();
   void routingHandleAck(uint16_t thing, uint8_t id, uint8_t action, uint16_t seq);
 
-  bool routingHandleLeaderPacket(const BeetonPacket &packet);
+  bool routingHandlePacket(const BeetonPacket &packet);
   bool routingFindDestination(uint16_t thing, uint8_t id, String &outIp);
   bool routingIsLocalDestination(uint16_t thing, uint8_t id);
   void routingHandleAckFailure(uint16_t thing, uint8_t id, uint8_t action, std::uint16_t seq);
@@ -136,6 +138,8 @@ private:
   void loadThings(const char *path);
   void loadActions(const char *path);
   void loadDefines(const char *path);
+
+  bool routingLightThreadWasReady = false;
 
   bool isSetup = false;
   bool networkReady = false;

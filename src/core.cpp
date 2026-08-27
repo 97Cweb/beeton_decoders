@@ -41,14 +41,6 @@ void Beeton::begin(LightThread &lt) {
         }
       });
 
-  // Register callback for join events (only runs on joiner)
-  lightThread->registerJoinCallback([this](const String &ip, const String &hashmac) {
-    // Only announce if we’re the joiner
-    if(lightThread->getRole() != Role::JOINER)
-      return;
-
-    routingHandleJoin();
-  });
   isSetup = true;
   routingBegin();
 }
@@ -230,6 +222,14 @@ void Beeton::handlePacket(const std::vector<uint8_t> &raw, const BeetonPacket &p
     return;
   }
 
+  if(isLeaderAddress(packet) && packet.action == BEETON_LEADER_ACTION_ROUTING){
+    if(handleReliablePacket(packet)){
+      return;
+    }
+    routingHandlePacket(packet);
+    return;
+  }
+
   if(isLeaderAddress(packet)){
     if(handleReliablePacket(packet)){
       return;
@@ -338,9 +338,6 @@ bool Beeton::handleLeaderControlPacket(const BeetonPacket &packet) {
     return true;
   }
 
-  if(routingHandleLeaderPacket(packet)){
-    return true;
-  }
   logBeeton(BEETON_LOG_WARN, "Ignored unknown reserved leader action %u", packet.action);
   return true;
 }

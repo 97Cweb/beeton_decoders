@@ -1,10 +1,10 @@
 #include "Beeton.h"
 #include "BeetonConfig.h"
+#include "BeetonRouting.h"
 #include "LightThreadTypes.h"
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <limits>
 #include <map>
 
 namespace {
@@ -14,7 +14,7 @@ std::map<uint32_t, bool> localDestinations;
 
 enum class RoutingState{
   IDLE,
-  WAITING_FOR_TRANSPORT,
+  READY_TO_ANNOUNCE,
   WAITING_FOR_ACK
 };
 
@@ -36,71 +36,109 @@ void Beeton::routingBegin(){
   thingIdToIp.clear();
   localDestinations.clear();
   routingState = RoutingState::IDLE;
+  routingLightThreadWasReady = false;
 
-  if(!lightThread || lightThread->getRole() != Role::LEADER){
-    setNetworkReady(false);
+  setNetworkReady(false);
+
+}
+
+void Beeton::routingOnLightThreadReady(){
+  logBeeton(BEETON_LOG_INFO, "LightThread ready, starting beeting routing setup");
+
+  setNetworkReady(false);
+
+  thingIdToIp.clear();
+  localDestinations.clear();
+
+  if(lightThread->getRole() == Role::LEADER){
+    const String localIp = lightThread->getMyIp();
+
+    for(const BeetonThing &thing:localThings){
+      registerThingOwner(thing.thing, thing.id, localIp, true);
+    }
+
+    routingState = RoutingState::IDLE;
+    setNetworkReady(true);
+    return;
+    
+  }
+
+  if(lightThread->getRole() == Role::JOINER){
+    routingState = RoutingState::READY_TO_ANNOUNCE;
     return;
   }
 
-  setNetworkReady(true);
+  routingState = RoutingState::IDLE;
 
-  const String localIp = lightThread->getMyIp();
+  logBeeton(BEETON_LOG_WARN, "LightThread ready with unsupported routing role");
+}
 
-  for(const BeetonThing &thing : localThings){
-    registerThingOwner(thing.thing, thing.id, localIp, true);
-  }
+void Beeton::routingOnLightThreadLost(){
+  logBeeton(BEETON_LOG_INFO, "LightThread no longer ready");
+
+  setNetworkReady(false);
+
+  thingIdToIp.clear();
+  localDestinations.clear();
+
+  routingState = RoutingState::IDLE;
 }
 
 void Beeton::routingUpdate(){
   if(!lightThread){
     return;
-  } 
-  if(lightThread->getRole() == Role::JOINER){
-    if(routingState != RoutingState::WAITING_FOR_TRANSPORT || !lightThread->isReady()){
-      return;
-    }
+  }
 
-    std::vector<uint8_t> payload;
-    payload.reserve(localThings.size()*3);
-    
-    for(const BeetonThing &thing : localThings){
-      payload.push_back(static_cast<uint8_t>(thing.thing >> 8));
-      payload.push_back(static_cast<uint8_t>(thing.thing & 0xFF));
-      payload.push_back(thing.id);
-    }
+  const bool lightThreadReady = lightThread->isReady();
 
-    const bool sent = sendPacket(true, BEETON_LEADER_THING, BEETON_LEADER_ID, BEETON_LEADER_ACTION_ANNOUNCE, payload, false);
+  if(lightThreadReady != routingLightThreadWasReady){
+    routingLightThreadWasReady = lightThreadReady;
 
-    if(sent){
-      routingState = RoutingState::WAITING_FOR_ACK;
-      logBeeton(BEETON_LOG_INFO, "Joiner sent Thing announcement");
+    if(lightThreadReady){
+      routingOnLightThreadReady();
     }
+    else{
+      routingOnLightThreadLost();
+    }
+  }
+
+  if(!lightThreadReady){
     return;
   }
 
-  if(!lightThread->isReady()|| lightThread->getRole() != Role::LEADER){
+  if(lightThread->getRole() != Role::JOINER){
     return;
   }
-  const String localIp = lightThread->getMyIp();
-  for(const BeetonThing &thing: localThings){
-    registerThingOwner(thing.thing, thing.id, localIp, true);
+
+  if(routingState != RoutingState::READY_TO_ANNOUNCE){
+    return;
   }
 
-  if(!isNetworkReady()){
-    setNetworkReady(true);
+  std::vector<uint8_t> payload;
+  payload.reserve(localThings.size() * 3 + 1);
+
+  payload.push_back(static_cast<uint8_t>(RoutingMessageType::ANNOUNCE_TABLE));
+  for(const BeetonThing &thing : localThings){
+    payload.push_back(static_cast<uint8_t>(thing.thing >> 8));
+    payload.push_back(static_cast<uint8_t>(thing.thing & 0xFF));
+    payload.push_back(thing.id);
   }
+
+  const bool sent = sendPacket(true, BEETON_LEADER_THING, BEETON_LEADER_ID, BEETON_LEADER_ACTION_ROUTING, payload, false);
+
+  if(sent){
+    routingState = RoutingState::WAITING_FOR_ACK;
+    logBeeton(BEETON_LOG_INFO, "Joiner sent Thing announcement");
+  }
+  return;
 }
 
-void Beeton::routingHandleJoin(){
-  setNetworkReady(false);
 
-  routingState = RoutingState::WAITING_FOR_TRANSPORT;
-}
 
 void Beeton::routingHandleAck(uint16_t thing, uint8_t id, uint8_t action, uint16_t seq){
   if(thing != BEETON_LEADER_THING ||
       id != BEETON_LEADER_ID ||
-      action != BEETON_LEADER_ACTION_ANNOUNCE){
+      action != BEETON_LEADER_ACTION_ROUTING){
     return;
   }
 
@@ -110,34 +148,54 @@ void Beeton::routingHandleAck(uint16_t thing, uint8_t id, uint8_t action, uint16
   setNetworkReady(true);
 }
 
-bool Beeton::routingHandleLeaderPacket(const BeetonPacket &packet){
-  switch(packet.action){
-    case BEETON_LEADER_ACTION_ANNOUNCE:
-      if(packet.payload.size() % 3 != 0){
-        logBeeton(BEETON_LOG_WARN,"Ignored malformed Thing announcement length %zu",packet.payload.size());
+bool Beeton::routingHandlePacket(const BeetonPacket &packet){
+  if(packet.action != BEETON_LEADER_ACTION_ROUTING){
+    return false;
+  }
+  if(packet.payload.empty()){
+    logBeeton(BEETON_LOG_WARN, "Ignored empty routing packet");
+    return true;
+  }
+
+  const RoutingMessageType messageType = static_cast<RoutingMessageType>(packet.payload[0]);
+
+  switch (messageType) {
+
+    case RoutingMessageType::ANNOUNCE_TABLE:{
+
+      const size_t tableLength = packet.payload.size() -1;
+
+      if(tableLength % 3 != 0){
+        logBeeton(BEETON_LOG_WARN, "Ignored malformed Thing announcement length %zu", tableLength);
         return true;
       }
-      for(size_t i = 0; i < packet.payload.size(); i+=3){
-        const uint16_t thing = (static_cast<uint16_t>(packet.payload[i]) << 8) | packet.payload[i+1];
 
-        const uint8_t id = packet.payload[i+ 2];
+      for(size_t i = 1; i < packet.payload.size(); i += 3){
+        const uint16_t thing = (static_cast<uint16_t>(packet.payload[i]) << 8) | packet.payload[i + 1];
+
+        const uint8_t id = packet.payload[i + 2];
+
         registerThingOwner(thing, id, packet.originIp, false);
 
-        logBeeton(BEETON_LOG_INFO, "Registered remote Thing %04X:%u at %s", thing, id, packet.originIp.c_str());
+        logBeeton(BEETON_LOG_INFO, "Registered remote Thing %04X:%u at %s",
+            thing, id, packet.originIp.c_str());
       }
-      return true;
+      return  true;
+
+    }
     default:
-      return false;
+      logBeeton(BEETON_LOG_WARN, "Ignored unknown routing message type %u", packet.payload[0]);
+      return true;
   }
 }
 
 void Beeton::routingHandleAckFailure(uint16_t thing, uint8_t id, uint8_t action, uint16_t seq){
   if(thing != BEETON_LEADER_THING ||
       id != BEETON_LEADER_ID ||
-      action != BEETON_LEADER_ACTION_ANNOUNCE){
+      action != BEETON_LEADER_ACTION_ROUTING){
     return;
   }
-  routingState = RoutingState::WAITING_FOR_TRANSPORT;
+  routingState = RoutingState::READY_TO_ANNOUNCE;
   logBeeton(BEETON_LOG_WARN, "Thing announcement failed seq=%u; scheduling another attempt", seq);
 }
 
