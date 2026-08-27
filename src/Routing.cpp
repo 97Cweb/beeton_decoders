@@ -43,7 +43,7 @@ void Beeton::routingBegin(){
 }
 
 void Beeton::routingOnLightThreadReady(){
-  logBeeton(BEETON_LOG_INFO, "LightThread ready, starting beeting routing setup");
+  logBeeton(BEETON_LOG_INFO, "LightThread ready, starting Beeton routing setup");
 
   setNetworkReady(false);
 
@@ -161,10 +161,6 @@ void Beeton::routingHandleAck(uint16_t thing, uint8_t id, uint8_t action, uint16
       return;
   }
 
-  routingState = RoutingState::IDLE;
-
-  logBeeton(BEETON_LOG_INFO, "Thing announcement acknowledged seq=%u", seq);
-  setNetworkReady(true);
 }
 
 bool Beeton::routingHandlePacket(const BeetonPacket &packet){
@@ -181,6 +177,11 @@ bool Beeton::routingHandlePacket(const BeetonPacket &packet){
   switch (messageType) {
 
     case RoutingMessageType::ANNOUNCE_TABLE:{
+
+      if(!lightThread || lightThread->getRole() != Role::LEADER){
+        logBeeton(BEETON_LOG_WARN, "Ignored Thing announcement on non-leader");
+        return true;
+      }
 
       const size_t tableLength = packet.payload.size() -1;
 
@@ -226,11 +227,11 @@ void Beeton::routingHandleAckFailure(uint16_t thing, uint8_t id, uint8_t action,
     case RoutingMessageType::ANNOUNCE_TABLE:
       routingState= RoutingState::READY_TO_ANNOUNCE;
 
-      logBeeton(BEETON_LOG_WARN, "Thing announcement failed seq=%u, secheduling another attempt",seq);
+      logBeeton(BEETON_LOG_WARN, "Thing announcement failed seq=%u, scheduling another attempt",seq);
       return;
 
     default:
-      logBeeton(BEETON_LOG_WARN, "Failure for unknown rotuing message type %u seq=%u", payload[0],seq);
+      logBeeton(BEETON_LOG_WARN, "Failure for unknown routing message type %u seq=%u", payload[0],seq);
       return;
   
   }
