@@ -165,7 +165,7 @@ void Beeton::pumpReliable() {
       continue;
 
     if(p.retriesLeft == 0) {
-      routingHandleAckFailure(p.thing, p.id, p.action, p.seq);
+      routingHandleAckFailure(p.thing, p.id, p.action, p.seq, p.payload);
       if(ackFailCb)
         ackFailCb(p.thing, p.id, p.action, p.seq);
       done.push_back(kv.first);

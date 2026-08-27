@@ -271,7 +271,7 @@ bool Beeton::handleAckPacket(const BeetonPacket &packet) {
   logBeeton(BEETON_LOG_INFO, "ACK received seq=%u thing %04X id=%u action=%u", packet.seq,
             packet.thing, packet.id, packet.action);
   
-  routingHandleAck(completed.thing, completed.id, completed.action, completed.seq);
+  routingHandleAck(completed.thing, completed.id, completed.action, completed.seq, completed.payload);
 
   if(ackSuccessCb) {
     ackSuccessCb(completed.thing, completed.id, completed.action, completed.seq);

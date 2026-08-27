@@ -122,13 +122,14 @@ private:
   void routingUpdate();
   void routingOnLightThreadReady();
   void routingOnLightThreadLost();
-  void routingHandleAck(uint16_t thing, uint8_t id, uint8_t action, uint16_t seq);
+  void routingHandleAck(uint16_t thing, uint8_t id, uint8_t action, uint16_t seq, const std::vector<uint8_t> &payload);
+  
 
   bool routingFindNextHop(uint16_t thing, uint8_t id, String& outIp);
   bool routingHandlePacket(const BeetonPacket &packet);
   bool routingFindDestination(uint16_t thing, uint8_t id, String &outIp);
   bool routingIsLocalDestination(uint16_t thing, uint8_t id);
-  void routingHandleAckFailure(uint16_t thing, uint8_t id, uint8_t action, std::uint16_t seq);
+  void routingHandleAckFailure(uint16_t thing, uint8_t id, uint8_t action, std::uint16_t seq, const std::vector<uint8_t> &payload);
 
   RoutingDisposition routingClassifyPacket(
       const BeetonPacket &packet, String& outNextHopIp

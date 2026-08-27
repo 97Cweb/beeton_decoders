@@ -135,11 +135,30 @@ void Beeton::routingUpdate(){
 
 
 
-void Beeton::routingHandleAck(uint16_t thing, uint8_t id, uint8_t action, uint16_t seq){
+void Beeton::routingHandleAck(uint16_t thing, uint8_t id, uint8_t action, uint16_t seq, const std::vector<uint8_t> &payload){
   if(thing != BEETON_LEADER_THING ||
       id != BEETON_LEADER_ID ||
       action != BEETON_LEADER_ACTION_ROUTING){
     return;
+  }
+
+  if(payload.empty()){
+    logBeeton(BEETON_LOG_WARN, "Routing ACK seq=%u has no original message type", seq);
+    return;
+  }
+
+  const RoutingMessageType messageType = static_cast<RoutingMessageType>(payload[0]);
+
+  switch(messageType){
+    case RoutingMessageType::ANNOUNCE_TABLE:
+      routingState = RoutingState::IDLE;
+
+      logBeeton(BEETON_LOG_INFO, "Thing announcement acknowledged seq=%u",seq);
+      setNetworkReady(true);
+      return;
+    default:
+      logBeeton(BEETON_LOG_WARN, "ACK for unknown routing message type %u seq=%u",payload[0],seq);
+      return;
   }
 
   routingState = RoutingState::IDLE;
@@ -189,15 +208,32 @@ bool Beeton::routingHandlePacket(const BeetonPacket &packet){
   }
 }
 
-void Beeton::routingHandleAckFailure(uint16_t thing, uint8_t id, uint8_t action, uint16_t seq){
+void Beeton::routingHandleAckFailure(uint16_t thing, uint8_t id, uint8_t action, uint16_t seq, const std::vector<uint8_t> &payload){
   if(thing != BEETON_LEADER_THING ||
       id != BEETON_LEADER_ID ||
       action != BEETON_LEADER_ACTION_ROUTING){
     return;
   }
 
-  routingState = RoutingState::READY_TO_ANNOUNCE;
-  logBeeton(BEETON_LOG_WARN, "Thing announcement failed seq=%u; scheduling another attempt", seq);
+  if(payload.empty()){
+    logBeeton(BEETON_LOG_WARN, "Failed routing packet seq=%u has no message type", seq);
+    return;
+  }
+
+  const RoutingMessageType messageType = static_cast<RoutingMessageType>(payload[0]);
+
+  switch (messageType) {
+    case RoutingMessageType::ANNOUNCE_TABLE:
+      routingState= RoutingState::READY_TO_ANNOUNCE;
+
+      logBeeton(BEETON_LOG_WARN, "Thing announcement failed seq=%u, secheduling another attempt",seq);
+      return;
+
+    default:
+      logBeeton(BEETON_LOG_WARN, "Failure for unknown rotuing message type %u seq=%u", payload[0],seq);
+      return;
+  
+  }
 }
 
 bool Beeton::routingFindNextHop( uint16_t thing, uint8_t id, String& outIp){
