@@ -195,8 +195,24 @@ void Beeton::routingHandleAckFailure(uint16_t thing, uint8_t id, uint8_t action,
       action != BEETON_LEADER_ACTION_ROUTING){
     return;
   }
+
   routingState = RoutingState::READY_TO_ANNOUNCE;
   logBeeton(BEETON_LOG_WARN, "Thing announcement failed seq=%u; scheduling another attempt", seq);
+}
+
+bool Beeton::routingFindNextHop( uint16_t thing, uint8_t id, String& outIp){
+  if(!lightThread){
+    return false;
+  }
+  if(lightThread->getRole() == Role::JOINER){
+    outIp = lightThread ->getLeaderIp();
+    return outIp.length() > 0;
+  }
+
+  if(lightThread->getRole() == Role::LEADER){
+    return routingFindDestination(thing, id, outIp);
+  }
+  return false;
 }
 
 bool Beeton::routingFindDestination(uint16_t thing, uint8_t id, String &outIp) {

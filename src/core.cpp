@@ -2,7 +2,9 @@
 #include "BeetonConfig.h"
 #include "LightThread.h"
 #include "LightThreadTypes.h"
+#include "esp32-hal.h"
 #include <cstdint>
+#include <utility>
 // Initialize Beeton and register callbacks with LightThread
 void Beeton::begin(LightThread &lt) {
   lightThread = &lt;
@@ -93,55 +95,30 @@ bool Beeton::sendPacket(bool reliable, uint16_t thing, uint8_t id, uint8_t actio
   }
   // Build once so retries preserve original packet contents
   std::vector<uint8_t> packet = buildPacket(flags, seq, thing, id, action, payload);
-
-  if(lightThread->getRole() == Role::LEADER) {
-
-    String destIp;
-
-    if(!routingFindDestination(thing, id, destIp)) {
-      logBeeton(BEETON_LOG_WARN, "Beeton: No IP for thing %04X id %u", thing, id);
-      return false;
-    }
-
-    bool ok = lightThread->sendUdp(destIp, packet);
-
-    // Track pending if we requested ACK
-    if(ok && reliable) {
-      Pending p;
-      p.destIp = destIp;
-      p.thing = thing;
-      p.id = id;
-      p.action = action;
-      p.payload = payload;
-      p.seq = seq;
-      p.timeoutMs = BEETON_RETRY_INTERVAL_MS;
-      p.retriesLeft = BEETON_MAX_RETRIES;
-      p.nextDueMs = millis() + p.timeoutMs;
-      pending[seq] = std::move(p);
-    }
-    return ok;
-  } else if(lightThread->getRole() == Role::JOINER) {
-    // Send to leader; leader forwards (must preserve packet as-is)
-    bool ok = lightThread->sendUdp(lightThread->getLeaderIp(), packet);
-
-    if(ok && reliable) {
-      Pending p;
-      p.destIp = lightThread->getLeaderIp(); // first hop is leader
-      p.thing = thing;
-      p.id = id;
-      p.action = action;
-      p.payload = payload;
-      p.seq = seq;
-      p.timeoutMs = BEETON_RETRY_INTERVAL_MS;
-      p.retriesLeft = BEETON_MAX_RETRIES;
-      p.nextDueMs = millis() + p.timeoutMs;
-      pending[seq] = std::move(p);
-    }
-    return ok;
+  
+  String nextHopIp;
+  if(!routingFindNextHop(thing, id, nextHopIp)){
+    logBeeton(BEETON_LOG_WARN, "Beeton: No next hop for thing %04X id %u", thing, id);
+    return false;
   }
 
-  logBeeton(BEETON_LOG_WARN, "Beeton: Unknown role, cannot send");
-  return false;
+  const bool sent = lightThread->sendUdp(nextHopIp, packet);
+
+  if(sent && reliable){
+    Pending pendingPacket;
+    pendingPacket.nextHopIp = nextHopIp;
+    pendingPacket.thing = thing;
+    pendingPacket.id = id;
+    pendingPacket.action = action;
+    pendingPacket.payload = payload;
+    pendingPacket.seq = seq;
+    pendingPacket.timeoutMs = BEETON_RETRY_INTERVAL_MS;
+    pendingPacket.retriesLeft = BEETON_MAX_RETRIES;
+    pendingPacket.nextDueMs = millis() + pendingPacket.timeoutMs;
+
+    pending[seq] = std::move(pendingPacket);
+  }
+  return sent;
 }
 
 // set list of local things this device contains

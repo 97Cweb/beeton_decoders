@@ -124,6 +124,7 @@ private:
   void routingOnLightThreadLost();
   void routingHandleAck(uint16_t thing, uint8_t id, uint8_t action, uint16_t seq);
 
+  bool routingFindNextHop(uint16_t thing, uint8_t id, String& outIp);
   bool routingHandlePacket(const BeetonPacket &packet);
   bool routingFindDestination(uint16_t thing, uint8_t id, String &outIp);
   bool routingIsLocalDestination(uint16_t thing, uint8_t id);
@@ -146,7 +147,7 @@ private:
 
   // --- Reliability state ---
   struct Pending {
-    String destIp;
+    String nextHopIp;
     uint16_t thing;
     uint8_t id, action;
     std::vector<uint8_t> payload;

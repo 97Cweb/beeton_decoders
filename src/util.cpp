@@ -174,7 +174,7 @@ void Beeton::pumpReliable() {
 
     // resend same packet bytes (rebuild with same flags/seq)
     auto raw = buildPacket(BEETON_FLAG_RELIABLE, p.seq, p.thing, p.id, p.action, p.payload);
-    lightThread->sendUdp(p.destIp, raw);
+    lightThread->sendUdp(p.nextHopIp, raw);
 
     p.retriesLeft--;
     p.nextDueMs = now + p.timeoutMs;
