@@ -8,6 +8,7 @@
 #include <map>
 #include <vector>
 
+#include "BeetonRouting.h"
 #include "BeetonConfig.h"
 
 enum BeetonLogLevel { BEETON_LOG_DEBUG, BEETON_LOG_INFO, BEETON_LOG_WARN, BEETON_LOG_ERROR };
@@ -117,15 +118,42 @@ private:
 
 
   // --- Routing integration ---
+
+  //specific to a routing implementation
+  void routingReset();
+  void routingStrategyUpdate();
+
+  void routingOnLightThreadReady();
+  void routingOnLightThreadLost();
+ 
+  bool routingHandleMessage(RoutingMessageType type, const BeetonPacket &packet);
+  void routingHandleAckMessage(RoutingMessageType type, uint16_t seq);
+  void routingHandleFailureMessage(RoutingMessageType type, uint16_t seq);
+
+
+  bool routingFindNextHop(uint16_t thing, uint8_t id, String& outIp);
+
+  RoutingDisposition routingClassifyPacket(
+      const BeetonPacket &packet, String& outNextHopIp
+      );
+  
+  // stable routing integration
   void routingBegin();
   void routingUpdate();
-  void routingHandleJoin();
-  void routingHandleAck(uint16_t thing, uint8_t id, uint8_t action, uint16_t seq);
 
-  bool routingHandleLeaderPacket(const BeetonPacket &packet);
-  bool routingFindDestination(uint16_t thing, uint8_t id, String &outIp);
-  bool routingIsLocalDestination(uint16_t thing, uint8_t id);
-  void routingHandleAckFailure(uint16_t thing, uint8_t id, uint8_t action, std::uint16_t seq);
+  bool sendRoutingPacket(bool reliable, const String &destinationIp, RoutingMessageType type, const std::vector<uint8_t> &messagePayload);
+  
+
+  bool routingHandlePacket(const BeetonPacket &packet);
+
+  void routingHandleAck(uint16_t thing, uint8_t id, uint8_t action, uint16_t seq, const std::vector<uint8_t> &payload);
+
+
+  void routingHandleAckFailure(uint16_t thing, uint8_t id, uint8_t action, std::uint16_t seq, const std::vector<uint8_t> &payload);
+  
+  
+
+
 
   const std::map<uint32_t, String> &routingGetKnownDestinations();
 
@@ -137,12 +165,14 @@ private:
   void loadActions(const char *path);
   void loadDefines(const char *path);
 
+  bool routingLightThreadWasReady = false;
+
   bool isSetup = false;
   bool networkReady = false;
 
   // --- Reliability state ---
   struct Pending {
-    String destIp;
+    String nextHopIp;
     uint16_t thing;
     uint8_t id, action;
     std::vector<uint8_t> payload;
@@ -167,6 +197,8 @@ private:
   void defineThings(const std::vector<BeetonThing> &list);
 
   bool sendPacket(bool reliable, uint16_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>&payload,bool requireNetworkReady);
+
+  bool sendPacketToIp(bool reliable, const String &nextHopIp, uint16_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t> &payload, bool requireNetworkReady);
   void sendAllKnownThingsToUsb();
   void sendFileOverUsb(String filename);
   void sendUsb(const char *fmt, ...);
@@ -183,7 +215,6 @@ private:
   bool handleAckPacket(const BeetonPacket &packet);
   bool handleReliablePacket(const BeetonPacket &packet);
   bool handleLeaderControlPacket(const BeetonPacket &packet);
-  bool forwardPacketIfLeader(const std::vector<uint8_t> &raw, const BeetonPacket &packet);
   void dispatchLocalPacket(const BeetonPacket &packet);
 
   void logBeeton(BeetonLogLevel level, const char *fmt, ...);

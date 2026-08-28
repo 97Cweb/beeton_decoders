@@ -1,8 +1,12 @@
 #include "Beeton.h"
 #include "BeetonConfig.h"
+#include "BeetonRouting.h"
 #include "LightThread.h"
 #include "LightThreadTypes.h"
+#include "esp32-hal.h"
 #include <cstdint>
+#include <sys/types.h>
+#include <utility>
 // Initialize Beeton and register callbacks with LightThread
 void Beeton::begin(LightThread &lt) {
   lightThread = &lt;
@@ -41,14 +45,6 @@ void Beeton::begin(LightThread &lt) {
         }
       });
 
-  // Register callback for join events (only runs on joiner)
-  lightThread->registerJoinCallback([this](const String &ip, const String &hashmac) {
-    // Only announce if we’re the joiner
-    if(lightThread->getRole() != Role::JOINER)
-      return;
-
-    routingHandleJoin();
-  });
   isSetup = true;
   routingBegin();
 }
@@ -80,7 +76,18 @@ bool Beeton::goDormant() {
 
 
 bool Beeton::sendPacket(bool reliable, uint16_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t> &payload, bool requireNetworkReady){
-  
+ 
+  String nextHopIp;
+
+  if(!routingFindNextHop(thing, id, nextHopIp)){
+    logBeeton(BEETON_LOG_WARN, "Beeton: No next hop for thing %04X id %u", thing, id);
+    return false;
+  }
+
+  return sendPacketToIp(reliable, nextHopIp, thing, id, action, payload, requireNetworkReady);
+}
+
+bool Beeton::sendPacketToIp(bool reliable, const String &nextHopIp, uint16_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t> &payload, bool requireNetworkReady){
   uint8_t flags = 0;
   uint16_t seq = 0;
 
@@ -95,61 +102,35 @@ bool Beeton::sendPacket(bool reliable, uint16_t thing, uint8_t id, uint8_t actio
     return false;
   }
 
+  if(nextHopIp.length()== 0){
+    logBeeton(BEETON_LOG_WARN, "Beeton: Cannot send to an empty IP address");
+    return false;
+  }
+
   if(reliable) {
     flags = BEETON_FLAG_RELIABLE;
     seq = allocSeq();
   }
   // Build once so retries preserve original packet contents
   std::vector<uint8_t> packet = buildPacket(flags, seq, thing, id, action, payload);
+  
+  const bool sent = lightThread->sendUdp(nextHopIp, packet);
 
-  if(lightThread->getRole() == Role::LEADER) {
+  if(sent && reliable){
+    Pending pendingPacket;
+    pendingPacket.nextHopIp = nextHopIp;
+    pendingPacket.thing = thing;
+    pendingPacket.id = id;
+    pendingPacket.action = action;
+    pendingPacket.payload = payload;
+    pendingPacket.seq = seq;
+    pendingPacket.timeoutMs = BEETON_RETRY_INTERVAL_MS;
+    pendingPacket.retriesLeft = BEETON_MAX_RETRIES;
+    pendingPacket.nextDueMs = millis() + pendingPacket.timeoutMs;
 
-    String destIp;
-
-    if(!routingFindDestination(thing, id, destIp)) {
-      logBeeton(BEETON_LOG_WARN, "Beeton: No IP for thing %04X id %u", thing, id);
-      return false;
-    }
-
-    bool ok = lightThread->sendUdp(destIp, packet);
-
-    // Track pending if we requested ACK
-    if(ok && reliable) {
-      Pending p;
-      p.destIp = destIp;
-      p.thing = thing;
-      p.id = id;
-      p.action = action;
-      p.payload = payload;
-      p.seq = seq;
-      p.timeoutMs = BEETON_RETRY_INTERVAL_MS;
-      p.retriesLeft = BEETON_MAX_RETRIES;
-      p.nextDueMs = millis() + p.timeoutMs;
-      pending[seq] = std::move(p);
-    }
-    return ok;
-  } else if(lightThread->getRole() == Role::JOINER) {
-    // Send to leader; leader forwards (must preserve packet as-is)
-    bool ok = lightThread->sendUdp(lightThread->getLeaderIp(), packet);
-
-    if(ok && reliable) {
-      Pending p;
-      p.destIp = lightThread->getLeaderIp(); // first hop is leader
-      p.thing = thing;
-      p.id = id;
-      p.action = action;
-      p.payload = payload;
-      p.seq = seq;
-      p.timeoutMs = BEETON_RETRY_INTERVAL_MS;
-      p.retriesLeft = BEETON_MAX_RETRIES;
-      p.nextDueMs = millis() + p.timeoutMs;
-      pending[seq] = std::move(p);
-    }
-    return ok;
+    pending[seq] = std::move(pendingPacket);
   }
-
-  logBeeton(BEETON_LOG_WARN, "Beeton: Unknown role, cannot send");
-  return false;
+  return sent;
 }
 
 // set list of local things this device contains
@@ -230,6 +211,14 @@ void Beeton::handlePacket(const std::vector<uint8_t> &raw, const BeetonPacket &p
     return;
   }
 
+  if(isLeaderAddress(packet) && packet.action == BEETON_LEADER_ACTION_ROUTING){
+    if(handleReliablePacket(packet)){
+      return;
+    }
+    routingHandlePacket(packet);
+    return;
+  }
+
   if(isLeaderAddress(packet)){
     if(handleReliablePacket(packet)){
       return;
@@ -242,27 +231,26 @@ void Beeton::handlePacket(const std::vector<uint8_t> &raw, const BeetonPacket &p
     logBeeton(BEETON_LOG_DEBUG, "Ignored data packet while Beeton network is not ready");
     return;
   }
+  
+  String nextHopIp;
 
-  if(lightThread && lightThread->getRole() == Role::LEADER && routingIsLocalDestination(packet.thing, packet.id)){
-    if(handleReliablePacket(packet)){
+  const RoutingDisposition disposition = routingClassifyPacket(packet, nextHopIp);
+
+  switch(disposition){
+    case RoutingDisposition::LOCAL:
+      if(handleReliablePacket(packet)){
+        return;
+      }
+      dispatchLocalPacket(packet);
       return;
-    }
-    dispatchLocalPacket(packet);
-    return;
-  }
-  // leader is router for things not itself. Forward unconditionally, no ack
-  if(lightThread && lightThread->getRole() == Role::LEADER) {
-    forwardPacketIfLeader(raw, packet);
-    return;
-  }
+    case RoutingDisposition::FORWARD:
+      logBeeton(BEETON_LOG_INFO, "Forwarding thing=%04X id=%u action=%u to %s", packet.thing, packet.id, packet.action, nextHopIp.c_str());
 
-  // final destination, do your own duplicate detection
-  if(handleReliablePacket(packet)) {
-    return;
+      lightThread->sendUdp(nextHopIp, raw);
+      return;
+    case RoutingDisposition::DROP:
+      return;
   }
-
-
-  dispatchLocalPacket(packet);
 }
 
 bool Beeton::handleAckPacket(const BeetonPacket &packet) {
@@ -294,7 +282,7 @@ bool Beeton::handleAckPacket(const BeetonPacket &packet) {
   logBeeton(BEETON_LOG_INFO, "ACK received seq=%u thing %04X id=%u action=%u", packet.seq,
             packet.thing, packet.id, packet.action);
   
-  routingHandleAck(completed.thing, completed.id, completed.action, completed.seq);
+  routingHandleAck(completed.thing, completed.id, completed.action, completed.seq, completed.payload);
 
   if(ackSuccessCb) {
     ackSuccessCb(completed.thing, completed.id, completed.action, completed.seq);
@@ -338,35 +326,10 @@ bool Beeton::handleLeaderControlPacket(const BeetonPacket &packet) {
     return true;
   }
 
-  if(routingHandleLeaderPacket(packet)){
-    return true;
-  }
   logBeeton(BEETON_LOG_WARN, "Ignored unknown reserved leader action %u", packet.action);
   return true;
 }
 
-bool Beeton::forwardPacketIfLeader(const std::vector<uint8_t> &raw, const BeetonPacket &packet) {
-  if(!isReady() || lightThread->getRole() != Role::LEADER) {
-    return false;
-  }
-
-  if(isLeaderAddress(packet)) {
-    return false;
-  }
-
-  String destIp;
-
-  if(!routingFindDestination(packet.thing, packet.id, destIp)) {
-    logBeeton(BEETON_LOG_WARN, "Leader has no destination for thing=%04X id=%u", packet.thing,
-              packet.id);
-    return false;
-  }
-
-  logBeeton(BEETON_LOG_INFO, "Leader forwarding thing=%04X id=%u action=%u to %s", packet.thing,
-            packet.id, packet.action, destIp.c_str());
-
-  return lightThread->sendUdp(destIp, raw);
-}
 
 void Beeton::dispatchLocalPacket(const BeetonPacket &packet) {
   if(!messageCallback){
