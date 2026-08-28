@@ -4,10 +4,7 @@
 #include "LightThread.h"
 #include "LightThreadTypes.h"
 #include "esp32-hal.h"
-#include "pthread.h"
-#include <atomic>
 #include <cstdint>
-#include <iterator>
 #include <sys/types.h>
 #include <utility>
 // Initialize Beeton and register callbacks with LightThread
@@ -88,13 +85,6 @@ bool Beeton::sendPacket(bool reliable, uint16_t thing, uint8_t id, uint8_t actio
   }
 
   return sendPacketToIp(reliable, nextHopIp, thing, id, action, payload, requireNetworkReady);
-}
-bool Beeton::sendRoutingPacket(bool reliable, const String &destinationIp, RoutingMessageType type, const std::vector<uint8_t> &messagePayload){
-  std::vector<uint8_t> payload;
-  payload.reserve(messagePayload.size() + 1);
-  payload.push_back(static_cast<uint8_t>(type));
-  payload.insert(payload.end(), messagePayload.begin(), messagePayload.end());
-  return sendPacketToIp(reliable, destinationIp, BEETON_LEADER_THING, BEETON_LEADER_ID, BEETON_LEADER_ACTION_ROUTING, payload, false);
 }
 
 bool Beeton::sendPacketToIp(bool reliable, const String &nextHopIp, uint16_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t> &payload, bool requireNetworkReady){

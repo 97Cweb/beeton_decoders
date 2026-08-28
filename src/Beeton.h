@@ -130,23 +130,30 @@ private:
   void routingHandleAckMessage(RoutingMessageType type, uint16_t seq);
   void routingHandleFailureMessage(RoutingMessageType type, uint16_t seq);
 
-  void routingBegin();
-  void routingUpdate();
-  void routingHandleAck(uint16_t thing, uint8_t id, uint8_t action, uint16_t seq, const std::vector<uint8_t> &payload);
-
-  bool sendPacketToIp(bool reliable, const String &nextHopIp, uint16_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t> &payload, bool requireNetworkReady);
-  bool sendRoutingPacket(bool reliable, const String &destinationIp, RoutingMessageType type, const std::vector<uint8_t> &messagePayload);
-  
 
   bool routingFindNextHop(uint16_t thing, uint8_t id, String& outIp);
-  bool routingHandlePacket(const BeetonPacket &packet);
-  bool routingFindDestination(uint16_t thing, uint8_t id, String &outIp);
-  bool routingIsLocalDestination(uint16_t thing, uint8_t id);
-  void routingHandleAckFailure(uint16_t thing, uint8_t id, uint8_t action, std::uint16_t seq, const std::vector<uint8_t> &payload);
 
   RoutingDisposition routingClassifyPacket(
       const BeetonPacket &packet, String& outNextHopIp
       );
+  
+  // stable routing integration
+  void routingBegin();
+  void routingUpdate();
+
+  bool sendRoutingPacket(bool reliable, const String &destinationIp, RoutingMessageType type, const std::vector<uint8_t> &messagePayload);
+  
+
+  bool routingHandlePacket(const BeetonPacket &packet);
+
+  void routingHandleAck(uint16_t thing, uint8_t id, uint8_t action, uint16_t seq, const std::vector<uint8_t> &payload);
+
+
+  void routingHandleAckFailure(uint16_t thing, uint8_t id, uint8_t action, std::uint16_t seq, const std::vector<uint8_t> &payload);
+  
+  
+
+
 
   const std::map<uint32_t, String> &routingGetKnownDestinations();
 
@@ -190,6 +197,8 @@ private:
   void defineThings(const std::vector<BeetonThing> &list);
 
   bool sendPacket(bool reliable, uint16_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>&payload,bool requireNetworkReady);
+
+  bool sendPacketToIp(bool reliable, const String &nextHopIp, uint16_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t> &payload, bool requireNetworkReady);
   void sendAllKnownThingsToUsb();
   void sendFileOverUsb(String filename);
   void sendUsb(const char *fmt, ...);
