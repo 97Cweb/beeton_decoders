@@ -118,11 +118,24 @@ private:
 
 
   // --- Routing integration ---
-  void routingBegin();
-  void routingUpdate();
+
+  //specific to a routing implementation
+  void routingReset();
+  void routingStrategyUpdate();
+
   void routingOnLightThreadReady();
   void routingOnLightThreadLost();
+ 
+  bool routingHandleMessage(RoutingMessageType type, const BeetonPacket &packet);
+  void routingHandleAckMessage(RoutingMessageType type, uint16_t seq);
+  void routingHandleFailureMessage(RoutingMessageType type, uint16_t seq);
+
+  void routingBegin();
+  void routingUpdate();
   void routingHandleAck(uint16_t thing, uint8_t id, uint8_t action, uint16_t seq, const std::vector<uint8_t> &payload);
+
+  bool sendPacketToIp(bool reliable, const String &nextHopIp, uint16_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t> &payload, bool requireNetworkReady);
+  bool sendRoutingPacket(bool reliable, const String &destinationIp, RoutingMessageType type, const std::vector<uint8_t> &messagePayload);
   
 
   bool routingFindNextHop(uint16_t thing, uint8_t id, String& outIp);

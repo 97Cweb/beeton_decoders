@@ -114,17 +114,16 @@ void Beeton::routingUpdate(){
     return;
   }
 
-  std::vector<uint8_t> payload;
-  payload.reserve(localThings.size() * 3 + 1);
+  std::vector<uint8_t> tablePayload;
+  tablePayload.reserve(localThings.size() * 3);
 
-  payload.push_back(static_cast<uint8_t>(RoutingMessageType::ANNOUNCE_TABLE));
   for(const BeetonThing &thing : localThings){
-    payload.push_back(static_cast<uint8_t>(thing.thing >> 8));
-    payload.push_back(static_cast<uint8_t>(thing.thing & 0xFF));
-    payload.push_back(thing.id);
+    tablePayload.push_back(static_cast<uint8_t>(thing.thing >> 8));
+    tablePayload.push_back(static_cast<uint8_t>(thing.thing & 0xFF));
+    tablePayload.push_back(thing.id);
   }
 
-  const bool sent = sendPacket(true, BEETON_LEADER_THING, BEETON_LEADER_ID, BEETON_LEADER_ACTION_ROUTING, payload, false);
+  const bool sent = sendRoutingPacket(true, lightThread->getLeaderIp(), RoutingMessageType::ANNOUNCE_TABLE, tablePayload);
 
   if(sent){
     routingState = RoutingState::WAITING_FOR_ACK;

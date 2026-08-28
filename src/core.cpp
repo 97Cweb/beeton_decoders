@@ -4,7 +4,11 @@
 #include "LightThread.h"
 #include "LightThreadTypes.h"
 #include "esp32-hal.h"
+#include "pthread.h"
+#include <atomic>
 #include <cstdint>
+#include <iterator>
+#include <sys/types.h>
 #include <utility>
 // Initialize Beeton and register callbacks with LightThread
 void Beeton::begin(LightThread &lt) {
@@ -75,7 +79,25 @@ bool Beeton::goDormant() {
 
 
 bool Beeton::sendPacket(bool reliable, uint16_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t> &payload, bool requireNetworkReady){
-  
+ 
+  String nextHopIp;
+
+  if(!routingFindNextHop(thing, id, nextHopIp)){
+    logBeeton(BEETON_LOG_WARN, "Beeton: No next hop for thing %04X id %u", thing, id);
+    return false;
+  }
+
+  return sendPacketToIp(reliable, nextHopIp, thing, id, action, payload, requireNetworkReady);
+}
+bool Beeton::sendRoutingPacket(bool reliable, const String &destinationIp, RoutingMessageType type, const std::vector<uint8_t> &messagePayload){
+  std::vector<uint8_t> payload;
+  payload.reserve(messagePayload.size() + 1);
+  payload.push_back(static_cast<uint8_t>(type));
+  payload.insert(payload.end(), messagePayload.begin(), messagePayload.end());
+  return sendPacketToIp(reliable, destinationIp, BEETON_LEADER_THING, BEETON_LEADER_ID, BEETON_LEADER_ACTION_ROUTING, payload, false);
+}
+
+bool Beeton::sendPacketToIp(bool reliable, const String &nextHopIp, uint16_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t> &payload, bool requireNetworkReady){
   uint8_t flags = 0;
   uint16_t seq = 0;
 
@@ -90,6 +112,11 @@ bool Beeton::sendPacket(bool reliable, uint16_t thing, uint8_t id, uint8_t actio
     return false;
   }
 
+  if(nextHopIp.length()== 0){
+    logBeeton(BEETON_LOG_WARN, "Beeton: Cannot send to an empty IP address");
+    return false;
+  }
+
   if(reliable) {
     flags = BEETON_FLAG_RELIABLE;
     seq = allocSeq();
@@ -97,12 +124,6 @@ bool Beeton::sendPacket(bool reliable, uint16_t thing, uint8_t id, uint8_t actio
   // Build once so retries preserve original packet contents
   std::vector<uint8_t> packet = buildPacket(flags, seq, thing, id, action, payload);
   
-  String nextHopIp;
-  if(!routingFindNextHop(thing, id, nextHopIp)){
-    logBeeton(BEETON_LOG_WARN, "Beeton: No next hop for thing %04X id %u", thing, id);
-    return false;
-  }
-
   const bool sent = lightThread->sendUdp(nextHopIp, packet);
 
   if(sent && reliable){
