@@ -7,7 +7,7 @@ const int IN1 = GPIO_NUM_22;
 const int IN2 = GPIO_NUM_23;
 
 const uint32_t frequency = 20000;
-const uint8_t resolution = 8;
+const uint8_t resolution = 7;
 
 void setup() {
     Serial.begin(115200);
